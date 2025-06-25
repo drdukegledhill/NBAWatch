@@ -54,6 +54,11 @@ class NBAWatchApp(QWidget):
         self.stats_table = QTableWidget()
         self.layout.addWidget(self.stats_table)
 
+        # Add Rewatch Score label
+        self.rewatch_label = QLabel("Rewatch Score: N/A")
+        self.rewatch_label.setStyleSheet("font-size: 18px; font-weight: bold; margin: 10px 0;")
+        self.layout.addWidget(self.rewatch_label)
+
         # Add Quit button at the bottom right
         self.quit_row = QHBoxLayout()
         self.quit_row.addStretch()
@@ -232,6 +237,53 @@ class NBAWatchApp(QWidget):
             self.stats_table.setItem(row, 1, QTableWidgetItem(str(val1)))
             self.stats_table.setItem(row, 2, QTableWidgetItem(str(val2)))
         self.stats_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+
+        # Calculate and display rewatch score
+        self.display_rewatch_score(stat_dicts)
+
+    def display_rewatch_score(self, stat_dicts):
+        # Helper to safely get float values
+        def get_float(d, key):
+            try:
+                val = d.get(key, 0)
+                if val is None or val == "-":
+                    return 0.0
+                return float(str(val).replace("%", ""))
+            except Exception:
+                return 0.0
+
+        t1, t2 = stat_dicts
+        # Offensive
+        points = get_float(t1, "points") + get_float(t2, "points")
+        assists = get_float(t1, "assists") + get_float(t2, "assists")
+        fg_pct = (get_float(t1, "fgp") + get_float(t2, "fgp")) / 2
+        tp_pct = (get_float(t1, "tpp") + get_float(t2, "tpp")) / 2
+        tpm = get_float(t1, "tpm") + get_float(t2, "tpm")
+        # Defensive
+        steals = get_float(t1, "steals") + get_float(t2, "steals")
+        blocks = get_float(t1, "blocks") + get_float(t2, "blocks")
+        # Chaos
+        close_game = max(0, 10 - abs(get_float(t1, "points") - get_float(t2, "points"))) * 2
+        turnovers = get_float(t1, "turnovers") + get_float(t2, "turnovers")
+        # Hot hand
+        hot_hand = 5 if get_float(t1, "fgp") > 70 or get_float(t2, "fgp") > 70 else 0
+
+        rewatch_score = 0
+        rewatch_score += points / 20
+        rewatch_score += assists / 8
+        rewatch_score += fg_pct / 2
+        rewatch_score += tp_pct / 2
+        rewatch_score += tpm / 4
+        rewatch_score += steals / 4
+        rewatch_score += blocks / 4
+        rewatch_score += close_game
+        rewatch_score -= turnovers / 2
+        rewatch_score += hot_hand
+        rewatch_score = min(100, rewatch_score)
+
+        print("points:", points, "assists:", assists, "fg_pct:", fg_pct, "tp_pct:", tp_pct, "tpm:", tpm, "steals:", steals, "blocks:", blocks, "close_game:", close_game, "turnovers:", turnovers, "hot_hand:", hot_hand)
+
+        self.rewatch_label.setText(f"Rewatch Score: {rewatch_score:.1f}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
