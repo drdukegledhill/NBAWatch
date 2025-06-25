@@ -1,0 +1,12 @@
+NBAWatch License
+================
+
+This project uses Python, PyQt5, and third-party APIs (including but not limited to api-sports.io and ESPN). All trademarks and data are the property of their respective owners.
+
+Permission is granted to use, modify, and run this code for personal, educational, or research purposes only.
+
+**Commercial use, distribution, or resale of this code or any derivative works is strictly prohibited.**
+
+You are responsible for complying with the terms of service and usage limits of any third-party APIs or data sources used with this project. The author of this code is not responsible for any misuse of third-party data or services.
+
+This code is provided "as is" without warranty of any kind. Use at your own risk. 

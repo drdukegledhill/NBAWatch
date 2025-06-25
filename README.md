@@ -59,7 +59,4 @@ The rewatch score is a single number (0–100) that estimates how entertaining a
   - All these components are combined (with each factor scaled to keep the score reasonable), and the total is capped at 100.
 
 ## Example
-A game with lots of points, assists, accurate shooting, exciting 3-pointers, defensive highlights, and a close finish will have a high rewatch score. Games with lots of turnovers or a blowout score will have a lower score.
-
-## License
-MIT License 
+A game with lots of points, assists, accurate shooting, exciting 3-pointers, defensive highlights, and a close finish will have a high rewatch score. Games with lots of turnovers or a blowout score will have a lower score. 
