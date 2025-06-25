@@ -150,15 +150,24 @@ class NBAWatchApp(QWidget):
     def set_logo_pixmap(self, label, url):
         if url:
             try:
-                img_data = requests.get(url).content
-                pixmap = QPixmap()
-                pixmap.loadFromData(img_data)
-                pixmap = pixmap.scaled(100, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                label.setPixmap(pixmap)
+                print("Loading logo from:", url)
+                headers = {"User-Agent": "Mozilla/5.0"}
+                response = requests.get(url, headers=headers)
+                if response.status_code == 200:
+                    img_data = response.content
+                    pixmap = QPixmap()
+                    if pixmap.loadFromData(img_data) and not pixmap.isNull():
+                        pixmap = pixmap.scaled(100, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                        label.setPixmap(pixmap)
+                    else:
+                        label.setText("[No Logo]")
+                else:
+                    label.setText("[No Logo]")
             except Exception as e:
-                label.setText("[Logo]")
+                print("Logo load error:", e)
+                label.setText("[No Logo]")
         else:
-            label.setText("[Logo]")
+            label.setText("[No Logo]")
 
     STAT_MEANINGS = {
         "fastBreakPoints": "Fast Break Points",
