@@ -1,9 +1,9 @@
 import sys
 print("Python executable:", sys.executable)
 import requests
-import os
 import json
 import time
+import sqlite3
 from collections import deque
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QProgressDialog, QProgressBar
@@ -14,6 +14,121 @@ from io import BytesIO
 
 API_KEY = "e4369477d21248708eb56aaaab3697b7"  # User's API key
 SEASONS = ["2021", "2022", "2023"]  # Only allowed seasons for free plan
+DB_PATH = "nba_cache.sqlite"
+
+
+def db_connect():
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    return conn
+
+
+def db_init():
+    conn = db_connect()
+    try:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS games (
+                season TEXT PRIMARY KEY,
+                json TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS stats (
+                game_id INTEGER PRIMARY KEY,
+                json TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def db_get_games(conn, season):
+    cur = conn.execute("SELECT json FROM games WHERE season = ?", (season,))
+    row = cur.fetchone()
+    if not row:
+        return None
+    try:
+        return json.loads(row[0])
+    except Exception:
+        return None
+
+
+def db_save_games(conn, season, data):
+    payload = json.dumps(data)
+    conn.execute(
+        "INSERT OR REPLACE INTO games (season, json, updated_at) VALUES (?, ?, ?)",
+        (season, payload, int(time.time())),
+    )
+    conn.commit()
+
+
+def db_get_stats(conn, game_id):
+    cur = conn.execute("SELECT json FROM stats WHERE game_id = ?", (game_id,))
+    row = cur.fetchone()
+    if not row:
+        return None
+    try:
+        return json.loads(row[0])
+    except Exception:
+        return None
+
+
+def db_get_valid_games(conn, season):
+    data = db_get_games(conn, season)
+    if not data:
+        return None
+    errors = data.get("errors") or {}
+    resp = data.get("response")
+    if errors:
+        db_delete_games(conn, season)
+        return None
+    if isinstance(resp, list) and len(resp) > 0:
+        return data
+    db_delete_games(conn, season)
+    return None
+
+
+def db_get_valid_stats(conn, game_id):
+    data = db_get_stats(conn, game_id)
+    if not data:
+        return None
+    resp = data.get("response")
+    if isinstance(resp, list) and len(resp) == 2:
+        return data
+    db_delete_stats(conn, game_id)
+    return None
+
+
+def db_has_stats(conn, game_id):
+    cur = conn.execute("SELECT 1 FROM stats WHERE game_id = ? LIMIT 1", (game_id,))
+    return cur.fetchone() is not None
+
+
+def db_save_stats(conn, game_id, data):
+    payload = json.dumps(data)
+    conn.execute(
+        "INSERT OR REPLACE INTO stats (game_id, json, updated_at) VALUES (?, ?, ?)",
+        (game_id, payload, int(time.time())),
+    )
+    conn.commit()
+
+
+def db_delete_stats(conn, game_id):
+    conn.execute("DELETE FROM stats WHERE game_id = ?", (game_id,))
+    conn.commit()
+
+
+def db_delete_games(conn, season):
+    conn.execute("DELETE FROM games WHERE season = ?", (season,))
+    conn.commit()
 
 
 class StatsCacheWorker(QObject):
@@ -30,17 +145,27 @@ class StatsCacheWorker(QObject):
     def stop(self):
         self._stop = True
 
+    def _sleep_interruptible(self, seconds):
+        step = 0.2
+        remaining = float(seconds)
+        while remaining > 0 and not self._stop:
+            time.sleep(min(step, remaining))
+            remaining -= step
+        return not self._stop
+
     def run(self):
+        conn = db_connect()
         total = len(self.game_ids)
         if total == 0:
             self.progress.emit(0, 0, f"No games to cache for season {self.season}.")
             self.finished.emit()
+            conn.close()
             return
 
         missing = deque()
         done = 0
         for game_id in self.game_ids:
-            if os.path.exists(f"nba_game_stats_{game_id}.json"):
+            if db_get_valid_stats(conn, game_id):
                 done += 1
             else:
                 missing.append(game_id)
@@ -49,6 +174,7 @@ class StatsCacheWorker(QObject):
         if not missing:
             self.progress.emit(total, done, f"All stats already cached for season {self.season}.")
             self.finished.emit()
+            conn.close()
             return
 
         headers = {"x-apisports-key": self.api_key}
@@ -57,7 +183,7 @@ class StatsCacheWorker(QObject):
 
         while missing and not self._stop:
             game_id = missing[0]
-            if os.path.exists(f"nba_game_stats_{game_id}.json"):
+            if db_get_valid_stats(conn, game_id):
                 missing.popleft()
                 done += 1
                 self.progress.emit(total, done, f"Cached {done}/{total} games for {self.season}.")
@@ -65,28 +191,42 @@ class StatsCacheWorker(QObject):
 
             url = f"https://v2.nba.api-sports.io/games/statistics?id={game_id}"
             try:
-                response = requests.get(url, headers=headers)
+                response = requests.get(url, headers=headers, timeout=20)
             except Exception as e:
                 self.progress.emit(total, done, f"Request error: {e}. Retrying soon...")
-                time.sleep(5)
+                if not self._sleep_interruptible(5):
+                    break
                 missing.rotate(-1)
                 continue
 
             if response.status_code == 200:
                 try:
-                    with open(f"nba_game_stats_{game_id}.json", "w", encoding="utf-8") as sf:
-                        sf.write(response.text)
+                    data = response.json()
+                    stats = data.get("response", [])
+                    if len(stats) != 2:
+                        self.progress.emit(
+                            total,
+                            done,
+                            f"Incomplete stats for game {game_id}. Retrying later...",
+                        )
+                        if not self._sleep_interruptible(10):
+                            break
+                        missing.rotate(-1)
+                        continue
+                    db_save_stats(conn, game_id, data)
                     missing.popleft()
                     done += 1
                     backoff = 15
                     self.progress.emit(total, done, f"Cached {done}/{total} games for {self.season}.")
                 except Exception as e:
                     self.progress.emit(total, done, f"Cache save error: {e}. Retrying soon...")
-                    time.sleep(5)
+                    if not self._sleep_interruptible(5):
+                        break
                     missing.rotate(-1)
             elif response.status_code == 429:
                 self.progress.emit(total, done, f"Rate limited (429). Retrying in {backoff}s...")
-                time.sleep(backoff)
+                if not self._sleep_interruptible(backoff):
+                    break
                 backoff = min(max_backoff, int(backoff * 1.5))
             else:
                 self.progress.emit(
@@ -94,7 +234,8 @@ class StatsCacheWorker(QObject):
                     done,
                     f"API error {response.status_code} for game {game_id}. Retrying later...",
                 )
-                time.sleep(5)
+                if not self._sleep_interruptible(5):
+                    break
                 missing.rotate(-1)
 
         if self._stop:
@@ -102,6 +243,7 @@ class StatsCacheWorker(QObject):
         else:
             self.progress.emit(total, done, f"All stats cached for season {self.season}.")
         self.finished.emit()
+        conn.close()
 
 class NBAWatchApp(QWidget):
     def __init__(self):
@@ -130,6 +272,9 @@ class NBAWatchApp(QWidget):
         self.season_row.addWidget(self.refresh_btn)
 
         self.layout.addLayout(self.season_row)
+
+        self.api_status = QLabel("API: idle")
+        self.layout.addWidget(self.api_status)
 
         self.cache_status = QLabel("Stats cache: idle")
         self.layout.addWidget(self.cache_status)
@@ -175,50 +320,81 @@ class NBAWatchApp(QWidget):
         self.setLayout(self.layout)
         self.cache_thread = None
         self.cache_worker = None
+        self.games_by_id = {}
         app = QApplication.instance()
         if app is not None:
             app.aboutToQuit.connect(self.stop_stats_cache_worker)
 
     def fetch_games(self, force_refresh=False):
         season = self.season_combo.currentText()
-        cache_file = f"nba_games_{season}.json"
         games_data = None
+        self.api_status.setText("API: fetching games...")
         # Try to load from cache unless force_refresh
-        if not force_refresh and os.path.exists(cache_file):
+        if not force_refresh:
+            conn = db_connect()
             try:
-                with open(cache_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+                data = db_get_valid_games(conn, season)
+                if data:
                     games_data = data.get("response", [])
                     print(f"Loaded games for season {season} from cache.")
             except Exception as e:
                 print("Cache load error:", e)
                 games_data = None
+            finally:
+                conn.close()
         if games_data is None:
             url = f"https://v2.nba.api-sports.io/games?season={season}"
             headers = {"x-apisports-key": API_KEY}
             try:
-                response = requests.get(url, headers=headers)
+                response = requests.get(url, headers=headers, timeout=20)
                 print("Status:", response.status_code)
                 print("URL:", url)
                 print("Raw response:", response.text[:1000])  # For debugging
                 if response.status_code == 200:
                     data = response.json()
+                    errors = data.get("errors") or {}
                     games_data = data.get("response", [])
+                    results = data.get("results")
+                    if errors or not games_data:
+                        msg = f"No games returned for season {season}."
+                        if results is not None:
+                            msg += f" Results: {results}."
+                        if errors:
+                            msg += f" Errors: {errors}"
+                        self.api_status.setText(f"API: {msg}")
+                        QMessageBox.warning(self, "API Warning", msg)
+                        games_data = []
+                        # Ensure we don't cache error responses
+                        conn = db_connect()
+                        try:
+                            db_delete_games(conn, season)
+                        finally:
+                            conn.close()
+                        return
                     # Save to cache
                     try:
-                        with open(cache_file, "w", encoding="utf-8") as f:
-                            json.dump(data, f)
+                        conn = db_connect()
+                        try:
+                            db_save_games(conn, season, data)
+                        finally:
+                            conn.close()
                         print(f"Saved games for season {season} to cache.")
+                        self.api_status.setText("API: games loaded")
                     except Exception as e:
                         print("Cache save error:", e)
+                        self.api_status.setText(f"API: cache save error: {e}")
                 else:
-                    QMessageBox.warning(self, "API Error", f"Error: {response.status_code}\n{response.text}")
+                    msg = f"Error: {response.status_code}\n{response.text}"
+                    self.api_status.setText(f"API: {msg}")
+                    QMessageBox.warning(self, "API Error", msg)
                     return
             except Exception as e:
+                self.api_status.setText(f"API: request error: {e}")
                 QMessageBox.critical(self, "Error", str(e))
                 return
         self.game_combo.clear()
         games = games_data
+        self.games_by_id = {g.get("id"): g for g in games if g.get("id")}
         added = False
         for game in games:
             try:
@@ -233,19 +409,21 @@ class NBAWatchApp(QWidget):
                 continue  # Skip games with missing data
         if not added:
             self.game_combo.addItem("No games found", "")
+            self.api_status.setText("API: no games found")
             return
 
         self.start_stats_cache_worker(games, season)
 
     def preload_stats_for_season(self, games, season):
         missing = []
+        conn = db_connect()
         for game in games:
             game_id = game.get("id")
             if not game_id:
                 continue
-            stats_cache = f"nba_game_stats_{game_id}.json"
-            if not os.path.exists(stats_cache):
+            if not db_get_valid_stats(conn, game_id):
                 missing.append(game_id)
+        conn.close()
 
         if not missing:
             print(f"All stats already cached for season {season}.")
@@ -270,8 +448,12 @@ class NBAWatchApp(QWidget):
                 response = requests.get(url, headers=headers)
                 if response.status_code == 200:
                     try:
-                        with open(f"nba_game_stats_{game_id}.json", "w", encoding="utf-8") as sf:
-                            sf.write(response.text)
+                        data = response.json()
+                        conn = db_connect()
+                        try:
+                            db_save_stats(conn, game_id, data)
+                        finally:
+                            conn.close()
                     except Exception as e:
                         print(f"Stats cache save error for game {game_id}:", e)
                 else:
@@ -295,6 +477,7 @@ class NBAWatchApp(QWidget):
         self.cache_worker.finished.connect(self.cache_thread.quit)
         self.cache_worker.finished.connect(self.cache_worker.deleteLater)
         self.cache_thread.finished.connect(self.cache_thread.deleteLater)
+        self.cache_thread.finished.connect(self.on_cache_thread_finished)
         self.cache_thread.start()
 
     def stop_stats_cache_worker(self):
@@ -303,7 +486,7 @@ class NBAWatchApp(QWidget):
         self.cache_worker.stop()
         if self.cache_thread is not None and self.cache_thread.isRunning():
             self.cache_thread.quit()
-            self.cache_thread.wait(5000)
+            self.cache_thread.wait(15000)
 
     def on_cache_progress(self, total, done, status):
         self.cache_progress.setMaximum(max(total, 1))
@@ -312,6 +495,9 @@ class NBAWatchApp(QWidget):
 
     def on_cache_finished(self):
         self.cache_worker = None
+        self.cache_status.setText("Stats cache: idle")
+
+    def on_cache_thread_finished(self):
         self.cache_thread = None
 
     def closeEvent(self, event):
@@ -327,42 +513,70 @@ class NBAWatchApp(QWidget):
         if not game_id:
             QMessageBox.warning(self, "No Game Selected", "Please select a valid game.")
             return
-        cache_file = f"nba_game_stats_{game_id}.json"
         stats_data = None
+        self.api_status.setText(f"API: fetching stats for game {game_id}...")
         # Try to load from cache unless force_refresh
-        if not force_refresh and os.path.exists(cache_file):
+        if not force_refresh:
+            conn = db_connect()
             try:
-                with open(cache_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
+                data = db_get_valid_stats(conn, game_id)
+                if data:
                     stats_data = data.get("response", [])
                     print(f"Loaded stats for game {game_id} from cache.")
+                    self.api_status.setText("API: stats loaded from cache")
             except Exception as e:
                 print("Stats cache load error:", e)
                 stats_data = None
+            finally:
+                conn.close()
         if stats_data is None:
             url = f"https://v2.nba.api-sports.io/games/statistics?id={game_id}"
             headers = {"x-apisports-key": API_KEY}
             try:
-                response = requests.get(url, headers=headers)
+                response = requests.get(url, headers=headers, timeout=20)
                 if response.status_code == 200:
                     data = response.json()
                     stats_data = data.get("response", [])
                     # Save to cache
                     try:
-                        with open(cache_file, "w", encoding="utf-8") as f:
-                            json.dump(data, f)
+                        conn = db_connect()
+                        try:
+                            if len(stats_data) == 2:
+                                db_save_stats(conn, game_id, data)
+                            else:
+                                db_delete_stats(conn, game_id)
+                        finally:
+                            conn.close()
                         print(f"Saved stats for game {game_id} to cache.")
+                        self.api_status.setText("API: stats loaded")
                     except Exception as e:
                         print("Stats cache save error:", e)
+                        self.api_status.setText(f"API: stats cache save error: {e}")
                 else:
-                    QMessageBox.warning(self, "API Error", f"Error: {response.status_code}\n{response.text}")
+                    msg = f"Error: {response.status_code}\n{response.text}"
+                    self.api_status.setText(f"API: {msg}")
+                    QMessageBox.warning(self, "API Error", msg)
                     return
             except Exception as e:
+                self.api_status.setText(f"API: stats request error: {e}")
                 QMessageBox.critical(self, "Error", str(e))
                 return
         stats = stats_data
         if len(stats) != 2:
-            QMessageBox.warning(self, "Stats Error", "Could not retrieve stats for both teams.")
+            game = self.games_by_id.get(game_id)
+            status = None
+            if game:
+                status = game.get("status", {}).get("long")
+            if status and status.lower() != "finished":
+                QMessageBox.warning(
+                    self,
+                    "Stats Not Ready",
+                    f"Stats are not available until the game is finished. Status: {status}.",
+                )
+                self.api_status.setText(f"API: stats not ready (status: {status})")
+            else:
+                QMessageBox.warning(self, "Stats Error", "Could not retrieve stats for both teams.")
+                self.api_status.setText("API: stats incomplete for this game")
             return
         self.display_team_info(stats)
         self.display_stats_table(stats)
@@ -549,26 +763,36 @@ class NBAWatchApp(QWidget):
 
     def preload_all_stats(self):
         season = self.season_combo.currentText()
-        cache_file = f"nba_games_{season}.json"
-        if not os.path.exists(cache_file):
-            QMessageBox.warning(self, "No Games Cached", "Please fetch games for this season first.")
-            return
-        with open(cache_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        conn = db_connect()
+        try:
+            data = db_get_valid_games(conn, season)
+            if not data:
+                QMessageBox.warning(self, "No Games Cached", "Please fetch games for this season first.")
+                return
             games = data.get("response", [])
+        finally:
+            conn.close()
         total = len(games)
         done = 0
         for game in games:
             try:
                 game_id = game["id"]
-                stats_cache = f"nba_game_stats_{game_id}.json"
-                if not os.path.exists(stats_cache):
+                conn = db_connect()
+                try:
+                    has_stats = db_get_valid_stats(conn, game_id) is not None
+                finally:
+                    conn.close()
+                if not has_stats:
                     url = f"https://v2.nba.api-sports.io/games/statistics?id={game_id}"
                     headers = {"x-apisports-key": API_KEY}
                     response = requests.get(url, headers=headers)
                     if response.status_code == 200:
-                        with open(stats_cache, "w", encoding="utf-8") as sf:
-                            sf.write(response.text)
+                        data = response.json()
+                        conn = db_connect()
+                        try:
+                            db_save_stats(conn, game_id, data)
+                        finally:
+                            conn.close()
                         done += 1
                 else:
                     done += 1
@@ -578,23 +802,27 @@ class NBAWatchApp(QWidget):
 
     def process_whole_year(self):
         season = self.season_combo.currentText()
-        cache_file = f"nba_games_{season}.json"
-        if not os.path.exists(cache_file):
-            QMessageBox.warning(self, "No Games Cached", "Please fetch games for this season first.")
-            return
-        with open(cache_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        conn = db_connect()
+        try:
+            data = db_get_valid_games(conn, season)
+            if not data:
+                QMessageBox.warning(self, "No Games Cached", "Please fetch games for this season first.")
+                return
             games = data.get("response", [])
+        finally:
+            conn.close()
         results = []
         for game in games:
             game_id = game["id"]
-            stats_cache = f"nba_game_stats_{game_id}.json"
-            if not os.path.exists(stats_cache):
-                continue
             try:
-                with open(stats_cache, "r", encoding="utf-8") as sf:
-                    stats_data = json.load(sf)
-                    stats = stats_data.get("response", [])
+                conn = db_connect()
+                try:
+                    stats_data = db_get_valid_stats(conn, game_id)
+                finally:
+                    conn.close()
+                if not stats_data:
+                    continue
+                stats = stats_data.get("response", [])
                 if len(stats) != 2:
                     continue
                 # Calculate rewatch score using the same logic as display_rewatch_score
@@ -691,6 +919,7 @@ class NBAWatchApp(QWidget):
             QMessageBox.warning(self, "Game Not Found", "Game not found in combo box. Try refreshing games list.")
 
 if __name__ == "__main__":
+    db_init()
     app = QApplication(sys.argv)
     window = NBAWatchApp()
     window.show()
