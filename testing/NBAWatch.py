@@ -3,15 +3,105 @@ print("Python executable:", sys.executable)
 import requests
 import os
 import json
+import time
+from collections import deque
 from PyQt5.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QProgressDialog, QProgressBar
 )
 from PyQt5.QtGui import QPixmap
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal
 from io import BytesIO
 
 API_KEY = "e4369477d21248708eb56aaaab3697b7"  # User's API key
 SEASONS = ["2021", "2022", "2023"]  # Only allowed seasons for free plan
+
+
+class StatsCacheWorker(QObject):
+    progress = pyqtSignal(int, int, str)  # total, done, status
+    finished = pyqtSignal()
+
+    def __init__(self, game_ids, season, api_key):
+        super().__init__()
+        self.game_ids = list(game_ids)
+        self.season = season
+        self.api_key = api_key
+        self._stop = False
+
+    def stop(self):
+        self._stop = True
+
+    def run(self):
+        total = len(self.game_ids)
+        if total == 0:
+            self.progress.emit(0, 0, f"No games to cache for season {self.season}.")
+            self.finished.emit()
+            return
+
+        missing = deque()
+        done = 0
+        for game_id in self.game_ids:
+            if os.path.exists(f"nba_game_stats_{game_id}.json"):
+                done += 1
+            else:
+                missing.append(game_id)
+
+        self.progress.emit(total, done, f"Caching stats for season {self.season}...")
+        if not missing:
+            self.progress.emit(total, done, f"All stats already cached for season {self.season}.")
+            self.finished.emit()
+            return
+
+        headers = {"x-apisports-key": self.api_key}
+        backoff = 15
+        max_backoff = 300
+
+        while missing and not self._stop:
+            game_id = missing[0]
+            if os.path.exists(f"nba_game_stats_{game_id}.json"):
+                missing.popleft()
+                done += 1
+                self.progress.emit(total, done, f"Cached {done}/{total} games for {self.season}.")
+                continue
+
+            url = f"https://v2.nba.api-sports.io/games/statistics?id={game_id}"
+            try:
+                response = requests.get(url, headers=headers)
+            except Exception as e:
+                self.progress.emit(total, done, f"Request error: {e}. Retrying soon...")
+                time.sleep(5)
+                missing.rotate(-1)
+                continue
+
+            if response.status_code == 200:
+                try:
+                    with open(f"nba_game_stats_{game_id}.json", "w", encoding="utf-8") as sf:
+                        sf.write(response.text)
+                    missing.popleft()
+                    done += 1
+                    backoff = 15
+                    self.progress.emit(total, done, f"Cached {done}/{total} games for {self.season}.")
+                except Exception as e:
+                    self.progress.emit(total, done, f"Cache save error: {e}. Retrying soon...")
+                    time.sleep(5)
+                    missing.rotate(-1)
+            elif response.status_code == 429:
+                self.progress.emit(total, done, f"Rate limited (429). Retrying in {backoff}s...")
+                time.sleep(backoff)
+                backoff = min(max_backoff, int(backoff * 1.5))
+            else:
+                self.progress.emit(
+                    total,
+                    done,
+                    f"API error {response.status_code} for game {game_id}. Retrying later...",
+                )
+                time.sleep(5)
+                missing.rotate(-1)
+
+        if self._stop:
+            self.progress.emit(total, done, "Caching stopped.")
+        else:
+            self.progress.emit(total, done, f"All stats cached for season {self.season}.")
+        self.finished.emit()
 
 class NBAWatchApp(QWidget):
     def __init__(self):
@@ -40,6 +130,13 @@ class NBAWatchApp(QWidget):
         self.season_row.addWidget(self.refresh_btn)
 
         self.layout.addLayout(self.season_row)
+
+        self.cache_status = QLabel("Stats cache: idle")
+        self.layout.addWidget(self.cache_status)
+        self.cache_progress = QProgressBar()
+        self.cache_progress.setMinimum(0)
+        self.cache_progress.setValue(0)
+        self.layout.addWidget(self.cache_progress)
 
         self.game_label = QLabel("Select Game:")
         self.layout.addWidget(self.game_label)
@@ -76,6 +173,11 @@ class NBAWatchApp(QWidget):
         self.layout.addLayout(self.quit_row)
 
         self.setLayout(self.layout)
+        self.cache_thread = None
+        self.cache_worker = None
+        app = QApplication.instance()
+        if app is not None:
+            app.aboutToQuit.connect(self.stop_stats_cache_worker)
 
     def fetch_games(self, force_refresh=False):
         season = self.season_combo.currentText()
@@ -131,6 +233,90 @@ class NBAWatchApp(QWidget):
                 continue  # Skip games with missing data
         if not added:
             self.game_combo.addItem("No games found", "")
+            return
+
+        self.start_stats_cache_worker(games, season)
+
+    def preload_stats_for_season(self, games, season):
+        missing = []
+        for game in games:
+            game_id = game.get("id")
+            if not game_id:
+                continue
+            stats_cache = f"nba_game_stats_{game_id}.json"
+            if not os.path.exists(stats_cache):
+                missing.append(game_id)
+
+        if not missing:
+            print(f"All stats already cached for season {season}.")
+            return
+
+        progress = QProgressDialog(
+            f"Caching stats for {season} ({len(missing)} games)...",
+            "Cancel",
+            0,
+            len(missing),
+            self,
+        )
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+
+        headers = {"x-apisports-key": API_KEY}
+        for i, game_id in enumerate(missing, start=1):
+            if progress.wasCanceled():
+                break
+            url = f"https://v2.nba.api-sports.io/games/statistics?id={game_id}"
+            try:
+                response = requests.get(url, headers=headers)
+                if response.status_code == 200:
+                    try:
+                        with open(f"nba_game_stats_{game_id}.json", "w", encoding="utf-8") as sf:
+                            sf.write(response.text)
+                    except Exception as e:
+                        print(f"Stats cache save error for game {game_id}:", e)
+                else:
+                    print(f"Stats API error for game {game_id}: {response.status_code}")
+            except Exception as e:
+                print(f"Stats request error for game {game_id}:", e)
+            progress.setValue(i)
+            QApplication.processEvents()
+
+    def start_stats_cache_worker(self, games, season):
+        game_ids = [g.get("id") for g in games if g.get("id")]
+        if self.cache_worker is not None:
+            self.stop_stats_cache_worker()
+
+        self.cache_worker = StatsCacheWorker(game_ids, season, API_KEY)
+        self.cache_thread = QThread()
+        self.cache_worker.moveToThread(self.cache_thread)
+        self.cache_thread.started.connect(self.cache_worker.run)
+        self.cache_worker.progress.connect(self.on_cache_progress)
+        self.cache_worker.finished.connect(self.on_cache_finished)
+        self.cache_worker.finished.connect(self.cache_thread.quit)
+        self.cache_worker.finished.connect(self.cache_worker.deleteLater)
+        self.cache_thread.finished.connect(self.cache_thread.deleteLater)
+        self.cache_thread.start()
+
+    def stop_stats_cache_worker(self):
+        if self.cache_worker is None:
+            return
+        self.cache_worker.stop()
+        if self.cache_thread is not None and self.cache_thread.isRunning():
+            self.cache_thread.quit()
+            self.cache_thread.wait(5000)
+
+    def on_cache_progress(self, total, done, status):
+        self.cache_progress.setMaximum(max(total, 1))
+        self.cache_progress.setValue(done)
+        self.cache_status.setText(f"Stats cache: {status}")
+
+    def on_cache_finished(self):
+        self.cache_worker = None
+        self.cache_thread = None
+
+    def closeEvent(self, event):
+        self.stop_stats_cache_worker()
+        super().closeEvent(event)
 
     def fetch_game_stats(self, force_refresh=False):
         idx = self.game_combo.currentIndex()

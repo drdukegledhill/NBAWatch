@@ -11,6 +11,7 @@ NBAWatch is a desktop application for exploring NBA game data, built with Python
 - **Rewatch Score:** Get a single number (0–100) summarizing the game's entertainment value, calculated from offensive, defensive, and dramatic factors.
 - **Modern UI:** Built with PyQt5 for a responsive, cross-platform desktop experience.
 - **Local Caching:** Game lists and stats are cached locally to reduce API calls and speed up repeat usage.
+- **Background Stats Caching:** When you load a season, stats are cached in the background with a progress bar so the UI stays responsive.
 
 ## Setup Instructions
 
@@ -38,7 +39,7 @@ NBAWatch is a desktop application for exploring NBA game data, built with Python
 
 ## Caching
 
-API responses are cached in `testing/` as `nba_games_*.json` and `nba_game_stats_*.json` to speed up repeat usage. These files are ignored by git.
+API responses are cached in `testing/` as `nba_games_*.json` and `nba_game_stats_*.json` to speed up repeat usage. These files are ignored by git. Season-level stat caching runs in the background with a progress bar, and it backs off on 429 rate limits and resumes until all games are cached.
 
 ## Rewatch Score Calculation
 
