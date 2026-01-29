@@ -53,6 +53,13 @@ To clear cached data and start fresh:
 rm -f nba_cache.sqlite nba_cache.sqlite-wal nba_cache.sqlite-shm
 ```
 
+## Troubleshooting
+
+- **API key missing:** The app will show "API: missing key". Set `NBAWATCH_API_KEY` or edit `API_KEY` in `NBAWatch.py`.
+- **Daily limit reached (429 / empty games):** The API has daily quotas. Wait for reset or upgrade your plan.
+- **No games found:** This usually indicates a quota error. Check the API status line for details.
+- **Stats missing for a game:** Some games may not have stats yet; try again later.
+
 ## Rewatch Score Calculation
 
 The rewatch score is a single number (0–100) that estimates how entertaining a basketball game is to rewatch, based on a mix of offensive, defensive, and dramatic factors:
