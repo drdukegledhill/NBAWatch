@@ -29,10 +29,11 @@ NBAWatch is a desktop application for exploring NBA game data, built with Python
    ```
 3. **API Key:**
    - Get a free API key from [api-sports.io](https://dashboard.api-sports.io/)
-   - Insert your key in `NBAWatch.py` at the line:
-     ```python
-     API_KEY = "YOUR_API_KEY"
+   - Set it as an environment variable:
+     ```bash
+     export NBAWATCH_API_KEY="YOUR_API_KEY"
      ```
+   - Or replace `API_KEY` in `NBAWatch.py` directly.
 4. **Run the app:**
    ```bash
    python3 NBAWatch.py

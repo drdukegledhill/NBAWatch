@@ -2,8 +2,5 @@
 __pycache__/
 *.py[cod]
 # API cache files
-/nba_games_*.json
-/nba_game_stats_*.json
 /nba_cache.sqlite
-/nba_cache.sqlite-wal
-/nba_cache.sqlite-shm
+/nba_cache.sqlite-*

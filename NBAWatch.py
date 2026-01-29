@@ -1,18 +1,17 @@
+import os
 import sys
-print("Python executable:", sys.executable)
 import requests
 import json
 import time
 import sqlite3
 from collections import deque
 from PyQt5.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QProgressDialog, QProgressBar
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar
 )
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal
-from io import BytesIO
 
-API_KEY = "e4369477d21248708eb56aaaab3697b7"  # User's API key
+API_KEY = os.environ.get("NBAWATCH_API_KEY", "YOUR_API_KEY")
 SEASONS = ["2021", "2022", "2023"]  # Only allowed seasons for free plan
 DB_PATH = "nba_cache.sqlite"
 
@@ -105,11 +104,6 @@ def db_get_valid_stats(conn, game_id):
         return data
     db_delete_stats(conn, game_id)
     return None
-
-
-def db_has_stats(conn, game_id):
-    cur = conn.execute("SELECT 1 FROM stats WHERE game_id = ? LIMIT 1", (game_id,))
-    return cur.fetchone() is not None
 
 
 def db_save_stats(conn, game_id, data):
@@ -324,6 +318,13 @@ class NBAWatchApp(QWidget):
         app = QApplication.instance()
         if app is not None:
             app.aboutToQuit.connect(self.stop_stats_cache_worker)
+        if API_KEY == "YOUR_API_KEY":
+            self.api_status.setText("API: missing key (set NBAWATCH_API_KEY or edit NBAWatch.py)")
+            QMessageBox.warning(
+                self,
+                "Missing API Key",
+                "Set NBAWATCH_API_KEY in your environment or replace API_KEY in NBAWatch.py.",
+            )
 
     def fetch_games(self, force_refresh=False):
         season = self.season_combo.currentText()
@@ -336,9 +337,10 @@ class NBAWatchApp(QWidget):
                 data = db_get_valid_games(conn, season)
                 if data:
                     games_data = data.get("response", [])
-                    print(f"Loaded games for season {season} from cache.")
+                    self.api_status.setText("API: games loaded from cache")
             except Exception as e:
                 print("Cache load error:", e)
+                self.api_status.setText(f"API: cache load error: {e}")
                 games_data = None
             finally:
                 conn.close()
@@ -347,9 +349,6 @@ class NBAWatchApp(QWidget):
             headers = {"x-apisports-key": API_KEY}
             try:
                 response = requests.get(url, headers=headers, timeout=20)
-                print("Status:", response.status_code)
-                print("URL:", url)
-                print("Raw response:", response.text[:1000])  # For debugging
                 if response.status_code == 200:
                     data = response.json()
                     errors = data.get("errors") or {}
@@ -378,7 +377,6 @@ class NBAWatchApp(QWidget):
                             db_save_games(conn, season, data)
                         finally:
                             conn.close()
-                        print(f"Saved games for season {season} to cache.")
                         self.api_status.setText("API: games loaded")
                     except Exception as e:
                         print("Cache save error:", e)
@@ -413,55 +411,6 @@ class NBAWatchApp(QWidget):
             return
 
         self.start_stats_cache_worker(games, season)
-
-    def preload_stats_for_season(self, games, season):
-        missing = []
-        conn = db_connect()
-        for game in games:
-            game_id = game.get("id")
-            if not game_id:
-                continue
-            if not db_get_valid_stats(conn, game_id):
-                missing.append(game_id)
-        conn.close()
-
-        if not missing:
-            print(f"All stats already cached for season {season}.")
-            return
-
-        progress = QProgressDialog(
-            f"Caching stats for {season} ({len(missing)} games)...",
-            "Cancel",
-            0,
-            len(missing),
-            self,
-        )
-        progress.setWindowModality(Qt.WindowModal)
-        progress.setMinimumDuration(0)
-
-        headers = {"x-apisports-key": API_KEY}
-        for i, game_id in enumerate(missing, start=1):
-            if progress.wasCanceled():
-                break
-            url = f"https://v2.nba.api-sports.io/games/statistics?id={game_id}"
-            try:
-                response = requests.get(url, headers=headers)
-                if response.status_code == 200:
-                    try:
-                        data = response.json()
-                        conn = db_connect()
-                        try:
-                            db_save_stats(conn, game_id, data)
-                        finally:
-                            conn.close()
-                    except Exception as e:
-                        print(f"Stats cache save error for game {game_id}:", e)
-                else:
-                    print(f"Stats API error for game {game_id}: {response.status_code}")
-            except Exception as e:
-                print(f"Stats request error for game {game_id}:", e)
-            progress.setValue(i)
-            QApplication.processEvents()
 
     def start_stats_cache_worker(self, games, season):
         game_ids = [g.get("id") for g in games if g.get("id")]
@@ -522,7 +471,6 @@ class NBAWatchApp(QWidget):
                 data = db_get_valid_stats(conn, game_id)
                 if data:
                     stats_data = data.get("response", [])
-                    print(f"Loaded stats for game {game_id} from cache.")
                     self.api_status.setText("API: stats loaded from cache")
             except Exception as e:
                 print("Stats cache load error:", e)
@@ -547,7 +495,6 @@ class NBAWatchApp(QWidget):
                                 db_delete_stats(conn, game_id)
                         finally:
                             conn.close()
-                        print(f"Saved stats for game {game_id} to cache.")
                         self.api_status.setText("API: stats loaded")
                     except Exception as e:
                         print("Stats cache save error:", e)
@@ -736,187 +683,8 @@ class NBAWatchApp(QWidget):
         rewatch_score += hot_hand
         rewatch_score = min(100, rewatch_score)
 
-        print(
-            "points:",
-            points,
-            "assists:",
-            assists,
-            "fg_pct:",
-            fg_pct,
-            "tp_pct:",
-            tp_pct,
-            "tpm:",
-            tpm,
-            "steals:",
-            steals,
-            "blocks:",
-            blocks,
-            "close_game:",
-            close_game,
-            "turnovers:",
-            turnovers,
-            "hot_hand:",
-            hot_hand,
-        )
-
         self.rewatch_label.setText(f"Rewatch Score: {rewatch_score:.1f}")
 
-    def preload_all_stats(self):
-        season = self.season_combo.currentText()
-        conn = db_connect()
-        try:
-            data = db_get_valid_games(conn, season)
-            if not data:
-                QMessageBox.warning(self, "No Games Cached", "Please fetch games for this season first.")
-                return
-            games = data.get("response", [])
-        finally:
-            conn.close()
-        total = len(games)
-        done = 0
-        for game in games:
-            try:
-                game_id = game["id"]
-                conn = db_connect()
-                try:
-                    has_stats = db_get_valid_stats(conn, game_id) is not None
-                finally:
-                    conn.close()
-                if not has_stats:
-                    url = f"https://v2.nba.api-sports.io/games/statistics?id={game_id}"
-                    headers = {"x-apisports-key": API_KEY}
-                    response = requests.get(url, headers=headers)
-                    if response.status_code == 200:
-                        data = response.json()
-                        conn = db_connect()
-                        try:
-                            db_save_stats(conn, game_id, data)
-                        finally:
-                            conn.close()
-                        done += 1
-                else:
-                    done += 1
-            except Exception as e:
-                print(f"Error caching stats for game {game.get('id', '?')}: {e}")
-        QMessageBox.information(self, "Preload Complete", f"Stats cached for {done}/{total} games in {season}.")
-
-    def process_whole_year(self):
-        season = self.season_combo.currentText()
-        conn = db_connect()
-        try:
-            data = db_get_valid_games(conn, season)
-            if not data:
-                QMessageBox.warning(self, "No Games Cached", "Please fetch games for this season first.")
-                return
-            games = data.get("response", [])
-        finally:
-            conn.close()
-        results = []
-        for game in games:
-            game_id = game["id"]
-            try:
-                conn = db_connect()
-                try:
-                    stats_data = db_get_valid_stats(conn, game_id)
-                finally:
-                    conn.close()
-                if not stats_data:
-                    continue
-                stats = stats_data.get("response", [])
-                if len(stats) != 2:
-                    continue
-                # Calculate rewatch score using the same logic as display_rewatch_score
-                def get_float(d, key):
-                    try:
-                        val = d.get(key, 0)
-                        if val is None or val == "-":
-                            return 0.0
-                        return float(str(val).replace("%", ""))
-                    except Exception:
-                        return 0.0
-
-                stat_dicts = []
-                for team_stats in stats:
-                    statistics = team_stats["statistics"]
-                    if isinstance(statistics, list):
-                        if statistics and isinstance(statistics[0], dict) and "type" not in statistics[0]:
-                            stat_dict = statistics[0]
-                        else:
-                            stat_dict = {}
-                            for item in statistics:
-                                if isinstance(item, dict) and "type" in item and "value" in item:
-                                    stat_dict[item["type"]] = item["value"]
-                        stat_dicts.append(stat_dict)
-                    else:
-                        stat_dicts.append(statistics)
-                t1, t2 = stat_dicts
-                points = get_float(t1, "points") + get_float(t2, "points")
-                assists = get_float(t1, "assists") + get_float(t2, "assists")
-                fg_pct = (get_float(t1, "fgp") + get_float(t2, "fgp")) / 2
-                tp_pct = (get_float(t1, "tpp") + get_float(t2, "tpp")) / 2
-                tpm = get_float(t1, "tpm") + get_float(t2, "tpm")
-                steals = get_float(t1, "steals") + get_float(t2, "steals")
-                blocks = get_float(t1, "blocks") + get_float(t2, "blocks")
-                close_game = max(0, 10 - abs(get_float(t1, "points") - get_float(t2, "points"))) * 2
-                turnovers = get_float(t1, "turnovers") + get_float(t2, "turnovers")
-                hot_hand = 5 if get_float(t1, "fgp") > 70 or get_float(t2, "fgp") > 70 else 0
-                rewatch_score = 0
-                rewatch_score += points / 20
-                rewatch_score += assists / 8
-                rewatch_score += fg_pct / 2
-                rewatch_score += tp_pct / 2
-                rewatch_score += tpm / 4
-                rewatch_score += steals / 4
-                rewatch_score += blocks / 4
-                rewatch_score += close_game
-                rewatch_score -= turnovers / 2
-                rewatch_score += hot_hand
-                rewatch_score = min(100, rewatch_score)
-                # Compose display info
-                home = game["teams"]["home"]["name"]
-                away = game["teams"]["visitors"]["name"]
-                date = game["date"]["start"][:10] if isinstance(game["date"], dict) else game["date"][:10]
-                results.append(
-                    {"game_id": game_id, "desc": f"{date}: {away} @ {home}", "rewatch_score": rewatch_score}
-                )
-            except Exception as e:
-                print(f"Error processing game {game_id}: {e}")
-        # Sort by rewatch score descending
-        results.sort(key=lambda x: x["rewatch_score"], reverse=True)
-        # Show in table
-        self.show_year_table(results)
-
-    def show_year_table(self, results):
-        # Remove old table if exists
-        if hasattr(self, "year_table"):
-            self.layout.removeWidget(self.year_table)
-            self.year_table.deleteLater()
-            del self.year_table
-        self.year_table = QTableWidget()
-        self.year_table.setRowCount(len(results))
-        self.year_table.setColumnCount(3)
-        self.year_table.setHorizontalHeaderLabels(["Game", "Rewatch Score", "View"])
-        for row, item in enumerate(results):
-            self.year_table.setItem(row, 0, QTableWidgetItem(item["desc"]))
-            self.year_table.setItem(row, 1, QTableWidgetItem(f"{item['rewatch_score']:.1f}"))
-            btn = QPushButton("View")
-            btn.clicked.connect(lambda _, gid=item["game_id"]: self.goto_game(gid))
-            self.year_table.setCellWidget(row, 2, btn)
-        self.year_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.layout.addWidget(self.year_table)
-
-    def goto_game(self, game_id):
-        # Find and select the game in the combo box, then fetch stats
-        idx = -1
-        for i in range(self.game_combo.count()):
-            if self.game_combo.itemData(i) == game_id:
-                idx = i
-                break
-        if idx != -1:
-            self.game_combo.setCurrentIndex(idx)
-            self.fetch_game_stats()
-        else:
-            QMessageBox.warning(self, "Game Not Found", "Game not found in combo box. Try refreshing games list.")
 
 if __name__ == "__main__":
     db_init()
