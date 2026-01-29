@@ -44,6 +44,14 @@ API responses are cached in `nba_cache.sqlite` to speed up repeat usage. This fi
 
 If you hit the API daily quota, the app will show a warning and the API status line will display the error message. You can retry later when your limit resets.
 
+### Reset the cache
+
+To clear cached data and start fresh:
+
+```bash
+rm -f nba_cache.sqlite nba_cache.sqlite-wal nba_cache.sqlite-shm
+```
+
 ## Rewatch Score Calculation
 
 The rewatch score is a single number (0–100) that estimates how entertaining a basketball game is to rewatch, based on a mix of offensive, defensive, and dramatic factors:
