@@ -417,11 +417,11 @@ class NBAWatchApp(QWidget):
         self.start_stats_cache_worker(games, season)
 
     def start_stats_cache_worker(self, games, season):
+        # Only start if one isn't already running
+        if self.cache_thread is not None and self.cache_thread.isRunning():
+            return  # Let existing thread finish
+        
         game_ids = [g.get("id") for g in games if g.get("id")]
-        # Ensure old thread is completely stopped
-        if self.cache_worker is not None or self.cache_thread is not None:
-            self.stop_stats_cache_worker()
-
         self.cache_game_ids = game_ids
         self.cache_season = season
         self.cache_worker = StatsCacheWorker(game_ids, season, API_KEY)
@@ -435,14 +435,13 @@ class NBAWatchApp(QWidget):
         self.cache_thread.start()
 
     def stop_stats_cache_worker(self):
+        """Only called on app close - let thread finish naturally"""
         if self.cache_worker is not None:
             self.cache_worker.stop()
         if self.cache_thread is not None and self.cache_thread.isRunning():
             self.cache_thread.quit()
-            # Wait for thread to stop - don't let it proceed until it does
-            if not self.cache_thread.wait(1000):
-                self.cache_thread.terminate()
-                self.cache_thread.wait(500)
+            # Give thread a reasonable time to finish
+            self.cache_thread.wait(3000)
 
     def on_cache_progress(self, total, done, status):
         self.cache_progress.setMaximum(max(total, 1))
@@ -472,11 +471,6 @@ class NBAWatchApp(QWidget):
         if not game_id:
             QMessageBox.warning(self, "No Game Selected", "Please select a valid game.")
             return
-        
-        # Pause cache worker if it's running
-        cache_was_running = self.cache_worker is not None and self.cache_thread is not None and self.cache_thread.isRunning()
-        if cache_was_running:
-            self.stop_stats_cache_worker()
         
         stats_data = None
         self.api_status.setText(f"API: fetching stats for game {game_id}...")
