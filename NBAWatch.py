@@ -8,7 +8,7 @@ import threading
 from collections import deque
 from dotenv import load_dotenv
 from PyQt5.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar, QSizePolicy, QStackedWidget
 )
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal, QTimer
@@ -304,8 +304,10 @@ class NBAWatchApp(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("NBAWatch: Season & Game Selector")
-        self.setGeometry(100, 100, 900, 600)
-        self.layout = QVBoxLayout()
+        self.setGeometry(100, 100, 1200, 700)
+        self.layout = QHBoxLayout()
+        self.left_panel = QVBoxLayout()
+        self.right_panel = QVBoxLayout()
 
         # Horizontal layout for season selection and button
         self.season_row = QHBoxLayout()
@@ -326,58 +328,77 @@ class NBAWatchApp(QWidget):
         self.refresh_btn.clicked.connect(lambda: self.fetch_games(force_refresh=True))
         self.season_row.addWidget(self.refresh_btn)
 
-        self.layout.addLayout(self.season_row)
+        self.left_panel.addLayout(self.season_row)
 
         self.api_status = QLabel("API: idle")
-        self.layout.addWidget(self.api_status)
+        self.left_panel.addWidget(self.api_status)
 
         self.cache_status = QLabel("Stats cache: idle")
-        self.layout.addWidget(self.cache_status)
+        self.left_panel.addWidget(self.cache_status)
         self.cache_progress = QProgressBar()
         self.cache_progress.setMinimum(0)
         self.cache_progress.setValue(0)
-        self.layout.addWidget(self.cache_progress)
+        self.left_panel.addWidget(self.cache_progress)
         self.cache_scan_status = QLabel("")
         self.cache_scan_status.setStyleSheet("color: #666; font-size: 12px;")
-        self.layout.addWidget(self.cache_scan_status)
+        self.left_panel.addWidget(self.cache_scan_status)
         self.scan_dots_timer = QTimer(self)
         self.scan_dots_timer.timeout.connect(self._tick_scan_indicator)
         self.scan_dots_phase = 0
 
         self.game_label = QLabel("Select Game:")
-        self.layout.addWidget(self.game_label)
+        self.left_panel.addWidget(self.game_label)
 
         self.game_combo = QComboBox()
-        self.layout.addWidget(self.game_combo)
+        self.left_panel.addWidget(self.game_combo)
 
         self.get_stats_btn = QPushButton("Get Game Stats")
         self.get_stats_btn.clicked.connect(self.fetch_game_stats)
-        self.layout.addWidget(self.get_stats_btn)
+        self.left_panel.addWidget(self.get_stats_btn)
 
         # Team info and stats table
+        self.display_stack = QStackedWidget()
+        self.right_panel.addWidget(self.display_stack)
+
+        self.game_view = QWidget()
+        self.game_view_layout = QVBoxLayout()
+        self.game_view.setLayout(self.game_view_layout)
+
         self.teams_row = QHBoxLayout()
         self.team1_box = QVBoxLayout()
         self.team2_box = QVBoxLayout()
         self.teams_row.addLayout(self.team1_box)
         self.teams_row.addLayout(self.team2_box)
-        self.layout.addLayout(self.teams_row)
+        self.game_view_layout.addLayout(self.teams_row)
 
         self.stats_table = QTableWidget()
-        self.layout.addWidget(self.stats_table)
+        self.stats_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.stats_table.verticalHeader().setVisible(False)
+        self.game_view_layout.addWidget(self.stats_table)
 
         # Add Rewatch Score label
         self.rewatch_label = QLabel("Rewatch Score: N/A")
         self.rewatch_label.setStyleSheet("font-size: 18px; font-weight: bold; margin: 10px 0;")
-        self.layout.addWidget(self.rewatch_label)
+        self.game_view_layout.addWidget(self.rewatch_label)
 
         self.rank_btn = QPushButton("Build Season Rewatch Rankings")
         self.rank_btn.setToolTip("Requires full season stats cache")
         self.rank_btn.setEnabled(False)
         self.rank_btn.clicked.connect(self.build_season_rankings)
-        self.layout.addWidget(self.rank_btn)
+        self.left_panel.addWidget(self.rank_btn)
+
+        self.rank_view = QWidget()
+        self.rank_view_layout = QVBoxLayout()
+        self.rank_view.setLayout(self.rank_view_layout)
 
         self.rank_table = QTableWidget()
-        self.layout.addWidget(self.rank_table)
+        self.rank_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.rank_table.verticalHeader().setVisible(False)
+        self.rank_view_layout.addWidget(self.rank_table)
+
+        self.display_stack.addWidget(self.game_view)
+        self.display_stack.addWidget(self.rank_view)
+        self.display_stack.setCurrentWidget(self.game_view)
 
         # Add Quit button at the bottom right
         self.quit_row = QHBoxLayout()
@@ -385,8 +406,11 @@ class NBAWatchApp(QWidget):
         self.quit_btn = QPushButton("Quit")
         self.quit_btn.clicked.connect(QApplication.instance().quit)
         self.quit_row.addWidget(self.quit_btn)
-        self.layout.addLayout(self.quit_row)
+        self.left_panel.addStretch()
+        self.left_panel.addLayout(self.quit_row)
 
+        self.layout.addLayout(self.left_panel, 1)
+        self.layout.addLayout(self.right_panel, 2)
         self.setLayout(self.layout)
         self.cache_thread = None
         self.cache_worker = None
@@ -622,6 +646,7 @@ class NBAWatchApp(QWidget):
         self.cache_scan_status.setText("Scanning cache" + "." * self.scan_dots_phase)
 
     def fetch_game_stats(self, force_refresh=False):
+        self.display_stack.setCurrentWidget(self.game_view)
         cache_was_running = bool(self.cache_thread is not None and self.cache_thread.isRunning())
         if cache_was_running:
             self.pause_stats_cache_worker()
@@ -882,6 +907,7 @@ class NBAWatchApp(QWidget):
         return rewatch_score
 
     def build_season_rankings(self):
+        self.display_stack.setCurrentWidget(self.rank_view)
         if not self.cache_completed:
             QMessageBox.warning(self, "Cache Not Ready", "Wait until the season cache is complete.")
             return
