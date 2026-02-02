@@ -753,36 +753,83 @@ class NBAWatchApp(QWidget):
         team1 = stats[0]["team"]
         name1 = QLabel(team1.get("name", ""))
         logo1 = QLabel()
-        self.set_logo_pixmap(logo1, team1.get("logo"))
+        self.set_logo_pixmap(logo1, team1.get("logo"), team1.get("name", ""))
         self.team1_box.addWidget(name1)
         self.team1_box.addWidget(logo1)
         # Team 2
         team2 = stats[1]["team"]
         name2 = QLabel(team2.get("name", ""))
         logo2 = QLabel()
-        self.set_logo_pixmap(logo2, team2.get("logo"))
+        self.set_logo_pixmap(logo2, team2.get("logo"), team2.get("name", ""))
         self.team2_box.addWidget(name2)
         self.team2_box.addWidget(logo2)
 
-    def set_logo_pixmap(self, label, url):
-        if url:
-            try:
-                print("Loading logo from:", url)
-                headers = {"User-Agent": "Mozilla/5.0"}
-                response = requests.get(url, headers=headers)
-                if response.status_code == 200:
-                    img_data = response.content
-                    pixmap = QPixmap()
-                    if pixmap.loadFromData(img_data) and not pixmap.isNull():
-                        pixmap = pixmap.scaled(100, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                        label.setPixmap(pixmap)
-                    else:
-                        label.setText("[No Logo]")
-                else:
-                    label.setText("[No Logo]")
-            except Exception as e:
-                print("Logo load error:", e)
-                label.setText("[No Logo]")
+    TEAM_ABBR = {
+        "Atlanta Hawks": "ATL",
+        "Boston Celtics": "BOS",
+        "Brooklyn Nets": "BKN",
+        "Charlotte Hornets": "CHA",
+        "Chicago Bulls": "CHI",
+        "Cleveland Cavaliers": "CLE",
+        "Dallas Mavericks": "DAL",
+        "Denver Nuggets": "DEN",
+        "Detroit Pistons": "DET",
+        "Golden State Warriors": "GSW",
+        "Houston Rockets": "HOU",
+        "Indiana Pacers": "IND",
+        "LA Clippers": "LAC",
+        "Los Angeles Clippers": "LAC",
+        "Los Angeles Lakers": "LAL",
+        "Memphis Grizzlies": "MEM",
+        "Miami Heat": "MIA",
+        "Milwaukee Bucks": "MIL",
+        "Minnesota Timberwolves": "MIN",
+        "New Orleans Pelicans": "NOP",
+        "New York Knicks": "NYK",
+        "Oklahoma City Thunder": "OKC",
+        "Orlando Magic": "ORL",
+        "Philadelphia 76ers": "PHI",
+        "Phoenix Suns": "PHX",
+        "Portland Trail Blazers": "POR",
+        "Sacramento Kings": "SAC",
+        "San Antonio Spurs": "SAS",
+        "Toronto Raptors": "TOR",
+        "Utah Jazz": "UTA",
+        "Washington Wizards": "WAS",
+    }
+
+    def _team_abbr(self, team_name):
+        if not team_name:
+            return None
+        return self.TEAM_ABBR.get(team_name)
+
+    def _load_pixmap_from_url(self, url):
+        if not url:
+            return None
+        try:
+            print("Loading logo from:", url)
+            headers = {"User-Agent": "Mozilla/5.0"}
+            response = requests.get(url, headers=headers, timeout=12)
+            if response.status_code != 200:
+                return None
+            img_data = response.content
+            pixmap = QPixmap()
+            if pixmap.loadFromData(img_data) and not pixmap.isNull():
+                return pixmap
+        except Exception as e:
+            print("Logo load error:", e)
+        return None
+
+    def set_logo_pixmap(self, label, url, team_name=""):
+        pixmap = self._load_pixmap_from_url(url)
+        if pixmap is None:
+            abbr = self._team_abbr(team_name)
+            if abbr:
+                fallback_url = f"https://a.espncdn.com/i/teamlogos/nba/500/{abbr}.png"
+                pixmap = self._load_pixmap_from_url(fallback_url)
+        if pixmap is not None:
+            pixmap = pixmap.scaled(100, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            label.setPixmap(pixmap)
         else:
             label.setText("[No Logo]")
 
