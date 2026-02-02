@@ -14,7 +14,7 @@ from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal
 
 load_dotenv()
 API_KEY = os.environ.get("NBAWATCH_API_KEY", "YOUR_API_KEY")
-SEASONS = ["2021", "2022", "2023"]  # Only allowed seasons for free plan
+SEASONS = ["2021", "2022", "2023","2024"]  # Only allowed seasons for free plan
 DB_PATH = "nba_cache.sqlite"
 
 
@@ -418,8 +418,11 @@ class NBAWatchApp(QWidget):
 
     def start_stats_cache_worker(self, games, season):
         game_ids = [g.get("id") for g in games if g.get("id")]
-        if self.cache_worker is not None:
+        # Ensure old thread is completely stopped
+        if self.cache_worker is not None or self.cache_thread is not None:
             self.stop_stats_cache_worker()
+            # Give Qt time to clean up the old thread
+            time.sleep(0.1)
 
         self.cache_game_ids = game_ids
         self.cache_season = season
@@ -431,17 +434,20 @@ class NBAWatchApp(QWidget):
         self.cache_worker.finished.connect(self.on_cache_finished)
         self.cache_worker.finished.connect(self.cache_thread.quit)
         self.cache_worker.finished.connect(self.cache_worker.deleteLater)
-        self.cache_thread.finished.connect(self.cache_thread.deleteLater)
         self.cache_thread.finished.connect(self.on_cache_thread_finished)
         self.cache_thread.start()
 
     def stop_stats_cache_worker(self):
-        if self.cache_worker is None:
-            return
-        self.cache_worker.stop()
-        if self.cache_thread is not None and self.cache_thread.isRunning():
-            self.cache_thread.quit()
-            self.cache_thread.wait(15000)
+        if self.cache_worker is not None:
+            self.cache_worker.stop()
+        if self.cache_thread is not None:
+            if self.cache_thread.isRunning():
+                self.cache_thread.quit()
+                # Wait for thread to stop with timeout
+                if not self.cache_thread.wait(5000):
+                    # Force kill if it doesn't stop gracefully
+                    self.cache_thread.terminate()
+                    self.cache_thread.wait(2000)
 
     def on_cache_progress(self, total, done, status):
         self.cache_progress.setMaximum(max(total, 1))
@@ -455,6 +461,7 @@ class NBAWatchApp(QWidget):
 
     def on_cache_thread_finished(self):
         self.cache_thread = None
+        self.cache_worker = None
 
     def closeEvent(self, event):
         self.stop_stats_cache_worker()
