@@ -4,6 +4,7 @@ import requests
 import json
 import time
 import sqlite3
+import threading
 from collections import deque
 from dotenv import load_dotenv
 from PyQt5.QtWidgets import (
@@ -136,18 +137,30 @@ class StatsCacheWorker(QObject):
         self.game_ids = list(game_ids)
         self.season = season
         self.api_key = api_key
-        self._stop = False
+        self._stop_event = threading.Event()
+        self._pause_event = threading.Event()
 
     def stop(self):
-        self._stop = True
+        self._stop_event.set()
+
+    def pause(self):
+        self._pause_event.set()
+
+    def resume(self):
+        self._pause_event.clear()
+
+    def _wait_if_paused(self):
+        while self._pause_event.is_set() and not self._stop_event.is_set():
+            time.sleep(0.2)
 
     def _sleep_interruptible(self, seconds):
         step = 0.2
         remaining = float(seconds)
-        while remaining > 0 and not self._stop:
+        while remaining > 0 and not self._stop_event.is_set():
+            self._wait_if_paused()
             time.sleep(min(step, remaining))
             remaining -= step
-        return not self._stop
+        return not self._stop_event.is_set()
 
     def run(self):
         conn = db_connect()
@@ -177,7 +190,8 @@ class StatsCacheWorker(QObject):
         backoff = 15
         max_backoff = 300
 
-        while missing and not self._stop:
+        while missing and not self._stop_event.is_set():
+            self._wait_if_paused()
             game_id = missing[0]
             if db_get_valid_stats(conn, game_id):
                 missing.popleft()
@@ -234,7 +248,7 @@ class StatsCacheWorker(QObject):
                     break
                 missing.rotate(-1)
 
-        if self._stop:
+        if self._stop_event.is_set():
             self.progress.emit(total, done, "Caching stopped.")
         else:
             self.progress.emit(total, done, f"All stats cached for season {self.season}.")
@@ -443,6 +457,14 @@ class NBAWatchApp(QWidget):
             # Give thread a reasonable time to finish
             self.cache_thread.wait(3000)
 
+    def pause_stats_cache_worker(self):
+        if self.cache_worker is not None:
+            self.cache_worker.pause()
+
+    def resume_stats_cache_worker(self):
+        if self.cache_worker is not None:
+            self.cache_worker.resume()
+
     def on_cache_progress(self, total, done, status):
         self.cache_progress.setMaximum(max(total, 1))
         self.cache_progress.setValue(done)
@@ -463,13 +485,20 @@ class NBAWatchApp(QWidget):
         super().closeEvent(event)
 
     def fetch_game_stats(self, force_refresh=False):
+        cache_was_running = bool(self.cache_thread is not None and self.cache_thread.isRunning())
+        if cache_was_running:
+            self.pause_stats_cache_worker()
         idx = self.game_combo.currentIndex()
         if idx == -1:
             QMessageBox.warning(self, "No Game Selected", "Please select a game.")
+            if cache_was_running:
+                self.resume_stats_cache_worker()
             return
         game_id = self.game_combo.itemData(idx)
         if not game_id:
             QMessageBox.warning(self, "No Game Selected", "Please select a valid game.")
+            if cache_was_running:
+                self.resume_stats_cache_worker()
             return
         
         stats_data = None
@@ -513,10 +542,14 @@ class NBAWatchApp(QWidget):
                     msg = f"Error: {response.status_code}\n{response.text}"
                     self.api_status.setText(f"API: {msg}")
                     QMessageBox.warning(self, "API Error", msg)
+                    if cache_was_running:
+                        self.resume_stats_cache_worker()
                     return
             except Exception as e:
                 self.api_status.setText(f"API: stats request error: {e}")
                 QMessageBox.critical(self, "Error", str(e))
+                if cache_was_running:
+                    self.resume_stats_cache_worker()
                 return
         stats = stats_data
         if len(stats) != 2:
@@ -536,15 +569,13 @@ class NBAWatchApp(QWidget):
             else:
                 QMessageBox.warning(self, "Stats Error", f"Could not retrieve stats for both teams. {cached_percentage}% cached.")
                 self.api_status.setText(f"API: stats incomplete for this game - {cached_percentage}% cached")
-            # Resume caching if it was running
-            if cache_was_running and self.cache_game_ids and self.cache_season:
-                self.start_stats_cache_worker([{"id": gid} for gid in self.cache_game_ids], self.cache_season)
+            if cache_was_running:
+                self.resume_stats_cache_worker()
             return
         self.display_team_info(stats)
         self.display_stats_table(stats)
-        # Resume caching if it was running
-        if cache_was_running and self.cache_game_ids and self.cache_season:
-            self.start_stats_cache_worker([{"id": gid} for gid in self.cache_game_ids], self.cache_season)
+        if cache_was_running:
+            self.resume_stats_cache_worker()
 
     def display_team_info(self, stats):
         # Clear previous

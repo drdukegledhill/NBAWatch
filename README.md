@@ -11,7 +11,7 @@ NBAWatch is a desktop application for exploring NBA game data, built with Python
 - **Rewatch Score:** Get a single number (0–100) summarizing the game's entertainment value, calculated from offensive, defensive, and dramatic factors.
 - **Modern UI:** Built with PyQt5 for a responsive, cross-platform desktop experience.
 - **Local Caching:** Game lists and stats are cached locally to reduce API calls and speed up repeat usage.
-- **Background Stats Caching:** When you load a season, stats are cached in the background with a progress bar so the UI stays responsive. Select a game while caching to pause and fetch instantly, then resume caching.
+- **Background Stats Caching:** When you load a season, stats are cached in the background with a progress bar so the UI stays responsive. If you select a game while caching, the cache pauses during the single-game fetch and then resumes automatically.
 - **Cache Progress:** View real-time cache percentage as stats are downloaded in the background.
 - **API Status Indicator:** A status line shows the latest API fetch or error message (useful for rate limits).
 
@@ -46,7 +46,7 @@ NBAWatch is a desktop application for exploring NBA game data, built with Python
 
 ## Caching
 
-API responses are cached in `nba_cache.sqlite` to speed up repeat usage. This file is ignored by git. Season-level stat caching runs in the background with a progress bar, and it backs off on 429 rate limits and resumes until all games are cached.
+API responses are cached in `nba_cache.sqlite` to speed up repeat usage. This file is ignored by git. Season-level stat caching runs in the background with a progress bar, pauses briefly during single-game fetches, and backs off on 429 rate limits until all games are cached.
 
 If you hit the API daily quota, the app will show a warning and the API status line will display the error message. You can retry later when your limit resets.
 
