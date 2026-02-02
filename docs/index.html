@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NBAWatch — Season & Game Selector</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="bg-orbit bg-orbit-1" aria-hidden="true"></div>
+    <div class="bg-orbit bg-orbit-2" aria-hidden="true"></div>
+
+    <main class="app">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">NBAWatch</p>
+          <h1>Season &amp; Game Watchlist</h1>
+          <p class="subtitle">Browse NBA games, cache stats, and rank the most rewatchable matchups.</p>
+        </div>
+        <div class="api-panel">
+          <label for="apiKey" class="label">API Key</label>
+          <div class="api-row">
+            <input id="apiKey" type="password" placeholder="Paste your API key" />
+            <button id="saveKeyBtn" class="btn secondary">Save</button>
+          </div>
+          <p class="hint">Stored locally in your browser. Required for API calls.</p>
+        </div>
+      </header>
+
+      <section class="layout">
+        <aside class="panel left">
+          <div class="panel-section">
+            <label class="label" for="seasonSelect">Select Season</label>
+            <div class="row">
+              <select id="seasonSelect"></select>
+              <button id="getGamesBtn" class="btn">Get Games</button>
+              <button id="refreshGamesBtn" class="btn ghost">Refresh</button>
+            </div>
+            <p id="apiStatus" class="status">API: idle</p>
+          </div>
+
+          <div class="panel-section">
+            <div class="cache-status">
+              <p class="label">Stats cache</p>
+              <p id="cacheStatus" class="status">Stats cache: idle</p>
+              <div class="progress">
+                <div id="cacheProgressBar" class="progress-bar" style="width: 0%;"></div>
+              </div>
+              <p id="cacheScanStatus" class="hint"></p>
+              <div class="row">
+                <button id="cacheSeasonBtn" class="btn secondary">Cache Season Stats</button>
+                <button id="pauseCacheBtn" class="btn ghost">Pause</button>
+                <button id="stopCacheBtn" class="btn ghost">Stop</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-section">
+            <label class="label" for="gameSelect">Select Game</label>
+            <select id="gameSelect"></select>
+            <div class="row">
+              <button id="getStatsBtn" class="btn">Get Game Stats</button>
+              <button id="refreshStatsBtn" class="btn ghost">Refresh Stats</button>
+            </div>
+          </div>
+
+          <div class="panel-section">
+            <button id="rankingsBtn" class="btn secondary">Build Season Rewatch Rankings</button>
+          </div>
+
+          <div class="panel-footer">
+            <button id="clearCacheBtn" class="btn ghost">Clear Local Cache</button>
+          </div>
+        </aside>
+
+        <section class="panel right">
+          <div id="gameView" class="view">
+            <div class="team-row">
+              <div class="team-card">
+                <img id="team1Logo" alt="Team 1 logo" />
+                <h3 id="team1Name">Team 1</h3>
+              </div>
+              <div class="team-card">
+                <img id="team2Logo" alt="Team 2 logo" />
+                <h3 id="team2Name">Team 2</h3>
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table id="statsTable">
+                <thead>
+                  <tr>
+                    <th>Stat</th>
+                    <th id="team1Header">Team 1</th>
+                    <th id="team2Header">Team 2</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+
+            <div class="rewatch">
+              <span>Rewatch Score</span>
+              <strong id="rewatchScore">N/A</strong>
+            </div>
+          </div>
+
+          <div id="rankView" class="view hidden">
+            <div class="table-wrap">
+              <table id="rankTable">
+                <thead>
+                  <tr>
+                    <th>Rank</th>
+                    <th>Date</th>
+                    <th>Matchup</th>
+                    <th>Game ID</th>
+                    <th>Rewatch Score</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

@@ -1,6 +1,6 @@
 # NBAWatch
 
-NBAWatch is a desktop application for exploring NBA game data, built with Python and PyQt5. It allows you to:
+NBAWatch is a desktop application for exploring NBA game data, built with Python and PyQt5. It also ships with a lightweight HTML/CSS/JS version in `docs/`. It allows you to:
 - Select a season and browse all NBA games for that year
 - View detailed team stats and logos for any game
 - Instantly see a "rewatch score" that estimates how entertaining a game is to rewatch, based on real stats
@@ -11,6 +11,7 @@ NBAWatch is a desktop application for exploring NBA game data, built with Python
 - **Rewatch Score:** Get a single number (0–100) summarizing the game's entertainment value, calculated from offensive, defensive, and dramatic factors.
 - **Focused Output Panel:** The right side switches between single-game stats and season rankings, with tables that hide row numbers for a cleaner look.
 - **Modern UI:** Built with PyQt5 for a responsive, cross-platform desktop experience.
+- **Web Companion:** A standalone HTML/CSS/JS version in `docs/` with local browser caching, stats table, and season rankings.
 - **Local Caching:** Game lists and stats are cached locally to reduce API calls and speed up repeat usage. The cache file is anchored to the app folder so progress persists across restarts.
 - **Background Stats Caching:** When you load a season, the app scans cached progress in the background (with an animated “Scanning cache…” indicator) and then continues caching with a progress bar so the UI stays responsive. If you select a game while caching, the cache pauses during the single-game fetch and then resumes automatically.
 - **Cache Progress:** View real-time cache percentage as stats are downloaded in the background.
@@ -44,6 +45,18 @@ NBAWatch is a desktop application for exploring NBA game data, built with Python
    ```bash
    python3 NBAWatch.py
    ```
+
+## Web Companion (HTML/CSS/JS)
+
+The web version lives in `docs/` and runs entirely in the browser.
+
+1. Open `docs/index.html` in your browser.
+2. Paste your API key into the API Key field and click **Save** (stored locally in your browser).
+3. Use **Get Games**, **Get Game Stats**, or **Build Season Rewatch Rankings**.
+
+Notes:
+- The web version caches data in `localStorage` instead of SQLite.
+- If you rotate API keys, use **Clear Local Cache** or re-save the key.
 
 ## Caching
 
