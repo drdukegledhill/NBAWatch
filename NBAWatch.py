@@ -8,7 +8,7 @@ import threading
 from collections import deque
 from dotenv import load_dotenv
 from PyQt5.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar, QSizePolicy, QStackedWidget
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QComboBox, QPushButton, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar, QSizePolicy, QStackedWidget
 )
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal, QTimer
@@ -364,11 +364,16 @@ class NBAWatchApp(QWidget):
         self.game_view_layout = QVBoxLayout()
         self.game_view.setLayout(self.game_view_layout)
 
-        self.teams_row = QHBoxLayout()
+        self.teams_row = QGridLayout()
         self.team1_box = QVBoxLayout()
         self.team2_box = QVBoxLayout()
-        self.teams_row.addLayout(self.team1_box)
-        self.teams_row.addLayout(self.team2_box)
+        self.teams_row.addWidget(QWidget(), 0, 0)
+        self.teams_row.addLayout(self.team1_box, 0, 1)
+        self.teams_row.addLayout(self.team2_box, 0, 2)
+        self.teams_row.setContentsMargins(0, 0, 0, 0)
+        self.teams_row.setColumnStretch(0, 1)
+        self.teams_row.setColumnStretch(1, 1)
+        self.teams_row.setColumnStretch(2, 1)
         self.game_view_layout.addLayout(self.teams_row)
 
         self.stats_table = QTableWidget()

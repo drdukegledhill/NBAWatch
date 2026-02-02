@@ -7,7 +7,7 @@ NBAWatch is a desktop application for exploring NBA game data, built with Python
 
 ## Features
 - **Season and Game Selection:** Choose from available NBA seasons (2021–2024 for free API plans) and select any game.
-- **Team Logos and Stats:** View both teams' names, logos, and a full table of game stats (with a fallback logo source when the primary logo is missing).
+- **Team Logos and Stats:** View both teams' names, logos (aligned above their stat columns), and a full table of game stats (with a fallback logo source when the primary logo is missing).
 - **Rewatch Score:** Get a single number (0–100) summarizing the game's entertainment value, calculated from offensive, defensive, and dramatic factors.
 - **Focused Output Panel:** The right side switches between single-game stats and season rankings, with tables that hide row numbers for a cleaner look.
 - **Modern UI:** Built with PyQt5 for a responsive, cross-platform desktop experience.
