@@ -452,6 +452,10 @@ class NBAWatchApp(QWidget):
             self.api_status.setText("API: no games found")
             return
 
+        game_ids = [g.get("id") for g in games if g.get("id")]
+        cached_done = self.update_cache_progress_from_cache(game_ids, season)
+        if cached_done >= len(game_ids) and game_ids:
+            return
         self.start_stats_cache_worker(games, season)
 
     def start_stats_cache_worker(self, games, season):
@@ -512,6 +516,34 @@ class NBAWatchApp(QWidget):
     def closeEvent(self, event):
         self.stop_stats_cache_worker()
         super().closeEvent(event)
+
+    def update_cache_progress_from_cache(self, game_ids, season):
+        if not game_ids:
+            self.cache_progress.setMaximum(1)
+            self.cache_progress.setValue(0)
+            self.cache_status.setText("Stats cache: no games to cache (0%)")
+            return 0
+        conn = db_connect()
+        done = 0
+        try:
+            for game_id in game_ids:
+                if db_get_valid_stats(conn, game_id):
+                    done += 1
+        finally:
+            conn.close()
+        total = len(game_ids)
+        percentage = int((done / total * 100)) if total > 0 else 0
+        self.cache_progress.setMaximum(max(total, 1))
+        self.cache_progress.setValue(done)
+        if done >= total:
+            self.cache_status.setText(f"Stats cache: all cached for season {season} ({percentage}%)")
+            self.cache_completed = True
+            self.rank_btn.setEnabled(True)
+        else:
+            self.cache_status.setText(
+                f"Stats cache: {done}/{total} cached for season {season} ({percentage}%)"
+            )
+        return done
 
     def fetch_game_stats(self, force_refresh=False):
         cache_was_running = bool(self.cache_thread is not None and self.cache_thread.isRunning())
