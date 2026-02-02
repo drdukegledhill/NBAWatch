@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar
 )
 from PyQt5.QtGui import QPixmap
-from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal, QTimer
 
 load_dotenv()
 API_KEY = os.environ.get("NBAWATCH_API_KEY", "YOUR_API_KEY")
@@ -340,6 +340,9 @@ class NBAWatchApp(QWidget):
         self.cache_scan_status = QLabel("")
         self.cache_scan_status.setStyleSheet("color: #666; font-size: 12px;")
         self.layout.addWidget(self.cache_scan_status)
+        self.scan_dots_timer = QTimer(self)
+        self.scan_dots_timer.timeout.connect(self._tick_scan_indicator)
+        self.scan_dots_phase = 0
 
         self.game_label = QLabel("Select Game:")
         self.layout.addWidget(self.game_label)
@@ -532,7 +535,9 @@ class NBAWatchApp(QWidget):
         self.cache_progress.setMaximum(max(len(game_ids), 1))
         self.cache_progress.setValue(0)
         self.cache_status.setText(f"Stats cache: scanning cached data for season {season}...")
-        self.cache_scan_status.setText("Scanning cache...")
+        self.scan_dots_phase = 0
+        self.cache_scan_status.setText("Scanning cache")
+        self.scan_dots_timer.start(300)
         self.scan_worker = CacheScanWorker(game_ids)
         self.scan_thread = QThread()
         self.scan_worker.moveToThread(self.scan_thread)
@@ -586,6 +591,7 @@ class NBAWatchApp(QWidget):
 
     def on_cache_scan_finished(self, total, done, season):
         self.scan_worker = None
+        self.scan_dots_timer.stop()
         self.cache_scan_status.setText("")
         if total == 0:
             self.cache_status.setText("Stats cache: no games to cache (0%)")
@@ -610,6 +616,10 @@ class NBAWatchApp(QWidget):
         self.stop_stats_cache_worker()
         self.stop_cache_scan_worker()
         super().closeEvent(event)
+
+    def _tick_scan_indicator(self):
+        self.scan_dots_phase = (self.scan_dots_phase + 1) % 4
+        self.cache_scan_status.setText("Scanning cache" + "." * self.scan_dots_phase)
 
     def fetch_game_stats(self, force_refresh=False):
         cache_was_running = bool(self.cache_thread is not None and self.cache_thread.isRunning())
