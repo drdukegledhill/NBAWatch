@@ -752,17 +752,21 @@ class NBAWatchApp(QWidget):
         # Team 1
         team1 = stats[0]["team"]
         name1 = QLabel(team1.get("name", ""))
+        name1.setAlignment(Qt.AlignHCenter)
         logo1 = QLabel()
+        logo1.setAlignment(Qt.AlignHCenter)
         self.set_logo_pixmap(logo1, team1.get("logo"), team1.get("name", ""))
-        self.team1_box.addWidget(name1)
         self.team1_box.addWidget(logo1)
+        self.team1_box.addWidget(name1)
         # Team 2
         team2 = stats[1]["team"]
         name2 = QLabel(team2.get("name", ""))
+        name2.setAlignment(Qt.AlignHCenter)
         logo2 = QLabel()
+        logo2.setAlignment(Qt.AlignHCenter)
         self.set_logo_pixmap(logo2, team2.get("logo"), team2.get("name", ""))
-        self.team2_box.addWidget(name2)
         self.team2_box.addWidget(logo2)
+        self.team2_box.addWidget(name2)
 
     TEAM_ABBR = {
         "Atlanta Hawks": "ATL",
