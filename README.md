@@ -6,12 +6,13 @@ NBAWatch is a desktop application for exploring NBA game data, built with Python
 - Instantly see a "rewatch score" that estimates how entertaining a game is to rewatch, based on real stats
 
 ## Features
-- **Season and Game Selection:** Choose from available NBA seasons (2021–2023 for free API plans) and select any game.
+- **Season and Game Selection:** Choose from available NBA seasons (2021–2024 for free API plans) and select any game.
 - **Team Logos and Stats:** View both teams' names, logos, and a full table of game stats.
 - **Rewatch Score:** Get a single number (0–100) summarizing the game's entertainment value, calculated from offensive, defensive, and dramatic factors.
 - **Modern UI:** Built with PyQt5 for a responsive, cross-platform desktop experience.
 - **Local Caching:** Game lists and stats are cached locally to reduce API calls and speed up repeat usage.
-- **Background Stats Caching:** When you load a season, stats are cached in the background with a progress bar so the UI stays responsive.
+- **Background Stats Caching:** When you load a season, stats are cached in the background with a progress bar so the UI stays responsive. Select a game while caching to pause and fetch instantly, then resume caching.
+- **Cache Progress:** View real-time cache percentage as stats are downloaded in the background.
 - **API Status Indicator:** A status line shows the latest API fetch or error message (useful for rate limits).
 
 ## Setup Instructions
@@ -25,15 +26,19 @@ NBAWatch is a desktop application for exploring NBA game data, built with Python
    ```bash
    pip3 install -r requirements.txt
    # Or, at minimum:
-   pip3 install PyQt5 requests
+   pip3 install PyQt5 requests python-dotenv
    ```
-3. **API Key:**
+3. **API Key Setup:**
    - Get a free API key from [api-sports.io](https://dashboard.api-sports.io/)
-   - Set it as an environment variable:
+   - Create a `.env` file in the project root:
+     ```bash
+     echo "NBAWATCH_API_KEY=YOUR_API_KEY" > .env
+     ```
+   - Or set it as an environment variable:
      ```bash
      export NBAWATCH_API_KEY="YOUR_API_KEY"
      ```
-   - Or replace `API_KEY` in `NBAWatch.py` directly.
+   - Note: `.env` is git-ignored for security.
 4. **Run the app:**
    ```bash
    python3 NBAWatch.py

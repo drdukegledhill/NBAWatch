@@ -4,3 +4,4 @@ __pycache__/
 # API cache files
 /nba_cache.sqlite
 /nba_cache.sqlite-*
+.env

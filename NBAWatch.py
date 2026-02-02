@@ -5,12 +5,14 @@ import json
 import time
 import sqlite3
 from collections import deque
+from dotenv import load_dotenv
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar
 )
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal
 
+load_dotenv()
 API_KEY = os.environ.get("NBAWATCH_API_KEY", "YOUR_API_KEY")
 SEASONS = ["2021", "2022", "2023"]  # Only allowed seasons for free plan
 DB_PATH = "nba_cache.sqlite"
@@ -314,6 +316,8 @@ class NBAWatchApp(QWidget):
         self.setLayout(self.layout)
         self.cache_thread = None
         self.cache_worker = None
+        self.cache_game_ids = []  # Track games being cached
+        self.cache_season = None  # Track season being cached
         self.games_by_id = {}
         app = QApplication.instance()
         if app is not None:
@@ -417,6 +421,8 @@ class NBAWatchApp(QWidget):
         if self.cache_worker is not None:
             self.stop_stats_cache_worker()
 
+        self.cache_game_ids = game_ids
+        self.cache_season = season
         self.cache_worker = StatsCacheWorker(game_ids, season, API_KEY)
         self.cache_thread = QThread()
         self.cache_worker.moveToThread(self.cache_thread)
@@ -440,7 +446,8 @@ class NBAWatchApp(QWidget):
     def on_cache_progress(self, total, done, status):
         self.cache_progress.setMaximum(max(total, 1))
         self.cache_progress.setValue(done)
-        self.cache_status.setText(f"Stats cache: {status}")
+        percentage = int((done / total * 100)) if total > 0 else 0
+        self.cache_status.setText(f"Stats cache: {status} ({percentage}%)")
 
     def on_cache_finished(self):
         self.cache_worker = None
@@ -462,6 +469,12 @@ class NBAWatchApp(QWidget):
         if not game_id:
             QMessageBox.warning(self, "No Game Selected", "Please select a valid game.")
             return
+        
+        # Pause cache worker if it's running
+        cache_was_running = self.cache_worker is not None and self.cache_thread is not None and self.cache_thread.isRunning()
+        if cache_was_running:
+            self.stop_stats_cache_worker()
+        
         stats_data = None
         self.api_status.setText(f"API: fetching stats for game {game_id}...")
         # Try to load from cache unless force_refresh
@@ -514,19 +527,27 @@ class NBAWatchApp(QWidget):
             status = None
             if game:
                 status = game.get("status", {}).get("long")
+            cached_count = len(stats)
+            cached_percentage = int((cached_count / 2) * 100)
             if status and status.lower() != "finished":
                 QMessageBox.warning(
                     self,
                     "Stats Not Ready",
-                    f"Stats are not available until the game is finished. Status: {status}.",
+                    f"Stats are not available until the game is finished. Status: {status}.\nCached: {cached_percentage}%",
                 )
-                self.api_status.setText(f"API: stats not ready (status: {status})")
+                self.api_status.setText(f"API: stats not ready (status: {status}) - {cached_percentage}% cached")
             else:
-                QMessageBox.warning(self, "Stats Error", "Could not retrieve stats for both teams.")
-                self.api_status.setText("API: stats incomplete for this game")
+                QMessageBox.warning(self, "Stats Error", f"Could not retrieve stats for both teams. {cached_percentage}% cached.")
+                self.api_status.setText(f"API: stats incomplete for this game - {cached_percentage}% cached")
+            # Resume caching if it was running
+            if cache_was_running and self.cache_game_ids and self.cache_season:
+                self.start_stats_cache_worker([{"id": gid} for gid in self.cache_game_ids], self.cache_season)
             return
         self.display_team_info(stats)
         self.display_stats_table(stats)
+        # Resume caching if it was running
+        if cache_was_running and self.cache_game_ids and self.cache_season:
+            self.start_stats_cache_worker([{"id": gid} for gid in self.cache_game_ids], self.cache_season)
 
     def display_team_info(self, stats):
         # Clear previous
