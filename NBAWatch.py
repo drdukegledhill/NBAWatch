@@ -267,6 +267,39 @@ class StatsCacheWorker(QObject):
         session.close()
         conn.close()
 
+
+class CacheScanWorker(QObject):
+    progress = pyqtSignal(int, int)  # total, done
+    finished = pyqtSignal(int, int)  # total, done
+
+    def __init__(self, game_ids):
+        super().__init__()
+        self.game_ids = list(game_ids)
+        self._stop_event = threading.Event()
+
+    def stop(self):
+        self._stop_event.set()
+
+    def run(self):
+        total = len(self.game_ids)
+        done = 0
+        if total == 0:
+            self.progress.emit(0, 0)
+            self.finished.emit(0, 0)
+            return
+        conn = db_connect()
+        try:
+            for idx, game_id in enumerate(self.game_ids, start=1):
+                if self._stop_event.is_set():
+                    break
+                if db_get_valid_stats(conn, game_id):
+                    done += 1
+                if idx == total or idx % 25 == 0:
+                    self.progress.emit(total, done)
+        finally:
+            conn.close()
+        self.finished.emit(total, done)
+
 class NBAWatchApp(QWidget):
     def __init__(self):
         super().__init__()
@@ -351,8 +384,11 @@ class NBAWatchApp(QWidget):
         self.setLayout(self.layout)
         self.cache_thread = None
         self.cache_worker = None
+        self.scan_thread = None
+        self.scan_worker = None
         self.cache_game_ids = []  # Track games being cached
         self.cache_season = None  # Track season being cached
+        self.pending_cache_games = []
         self.cache_completed = False
         self.games_by_id = {}
         app = QApplication.instance()
@@ -370,6 +406,7 @@ class NBAWatchApp(QWidget):
         season = self.season_combo.currentText()
         self.cache_completed = False
         self.rank_btn.setEnabled(False)
+        self.stop_cache_scan_worker()
         games_data = None
         self.api_status.setText("API: fetching games...")
         # Try to load from cache unless force_refresh
@@ -453,10 +490,8 @@ class NBAWatchApp(QWidget):
             return
 
         game_ids = [g.get("id") for g in games if g.get("id")]
-        cached_done = self.update_cache_progress_from_cache(game_ids, season)
-        if cached_done >= len(game_ids) and game_ids:
-            return
-        self.start_stats_cache_worker(games, season)
+        self.pending_cache_games = list(games)
+        self.start_cache_scan_worker(game_ids, season)
 
     def start_stats_cache_worker(self, games, season):
         # Only start if one isn't already running
@@ -487,6 +522,29 @@ class NBAWatchApp(QWidget):
             # Give thread a reasonable time to finish
             self.cache_thread.wait(3000)
 
+    def start_cache_scan_worker(self, game_ids, season):
+        if self.scan_thread is not None and self.scan_thread.isRunning():
+            return
+        self.cache_progress.setMaximum(max(len(game_ids), 1))
+        self.cache_progress.setValue(0)
+        self.cache_status.setText(f"Stats cache: scanning cached data for season {season}...")
+        self.scan_worker = CacheScanWorker(game_ids)
+        self.scan_thread = QThread()
+        self.scan_worker.moveToThread(self.scan_thread)
+        self.scan_thread.started.connect(self.scan_worker.run)
+        self.scan_worker.progress.connect(lambda total, done: self.on_cache_scan_progress(total, done, season))
+        self.scan_worker.finished.connect(lambda total, done: self.on_cache_scan_finished(total, done, season))
+        self.scan_worker.finished.connect(self.scan_thread.quit)
+        self.scan_thread.finished.connect(self.on_cache_scan_thread_finished)
+        self.scan_thread.start()
+
+    def stop_cache_scan_worker(self):
+        if self.scan_worker is not None:
+            self.scan_worker.stop()
+        if self.scan_thread is not None and self.scan_thread.isRunning():
+            self.scan_thread.quit()
+            self.scan_thread.wait(3000)
+
     def pause_stats_cache_worker(self):
         if self.cache_worker is not None:
             self.cache_worker.pause()
@@ -513,37 +571,39 @@ class NBAWatchApp(QWidget):
         self.cache_thread = None
         self.cache_worker = None
 
-    def closeEvent(self, event):
-        self.stop_stats_cache_worker()
-        super().closeEvent(event)
-
-    def update_cache_progress_from_cache(self, game_ids, season):
-        if not game_ids:
-            self.cache_progress.setMaximum(1)
-            self.cache_progress.setValue(0)
-            self.cache_status.setText("Stats cache: no games to cache (0%)")
-            return 0
-        conn = db_connect()
-        done = 0
-        try:
-            for game_id in game_ids:
-                if db_get_valid_stats(conn, game_id):
-                    done += 1
-        finally:
-            conn.close()
-        total = len(game_ids)
-        percentage = int((done / total * 100)) if total > 0 else 0
+    def on_cache_scan_progress(self, total, done, season):
         self.cache_progress.setMaximum(max(total, 1))
         self.cache_progress.setValue(done)
+        percentage = int((done / total * 100)) if total > 0 else 0
+        self.cache_status.setText(
+            f"Stats cache: {done}/{total} cached for season {season} ({percentage}%)"
+        )
+
+    def on_cache_scan_finished(self, total, done, season):
+        self.scan_worker = None
+        if total == 0:
+            self.cache_status.setText("Stats cache: no games to cache (0%)")
+            return
+        percentage = int((done / total * 100)) if total > 0 else 0
         if done >= total:
             self.cache_status.setText(f"Stats cache: all cached for season {season} ({percentage}%)")
             self.cache_completed = True
             self.rank_btn.setEnabled(True)
-        else:
-            self.cache_status.setText(
-                f"Stats cache: {done}/{total} cached for season {season} ({percentage}%)"
-            )
-        return done
+            return
+        self.cache_status.setText(
+            f"Stats cache: {done}/{total} cached for season {season} ({percentage}%)"
+        )
+        if self.pending_cache_games:
+            self.start_stats_cache_worker(self.pending_cache_games, season)
+
+    def on_cache_scan_thread_finished(self):
+        self.scan_thread = None
+        self.scan_worker = None
+
+    def closeEvent(self, event):
+        self.stop_stats_cache_worker()
+        self.stop_cache_scan_worker()
+        super().closeEvent(event)
 
     def fetch_game_stats(self, force_refresh=False):
         cache_was_running = bool(self.cache_thread is not None and self.cache_thread.isRunning())
