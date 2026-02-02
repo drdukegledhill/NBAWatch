@@ -337,6 +337,9 @@ class NBAWatchApp(QWidget):
         self.cache_progress.setMinimum(0)
         self.cache_progress.setValue(0)
         self.layout.addWidget(self.cache_progress)
+        self.cache_scan_status = QLabel("")
+        self.cache_scan_status.setStyleSheet("color: #666; font-size: 12px;")
+        self.layout.addWidget(self.cache_scan_status)
 
         self.game_label = QLabel("Select Game:")
         self.layout.addWidget(self.game_label)
@@ -407,6 +410,7 @@ class NBAWatchApp(QWidget):
         self.cache_completed = False
         self.rank_btn.setEnabled(False)
         self.stop_cache_scan_worker()
+        self.cache_scan_status.setText("")
         games_data = None
         self.api_status.setText("API: fetching games...")
         # Try to load from cache unless force_refresh
@@ -528,6 +532,7 @@ class NBAWatchApp(QWidget):
         self.cache_progress.setMaximum(max(len(game_ids), 1))
         self.cache_progress.setValue(0)
         self.cache_status.setText(f"Stats cache: scanning cached data for season {season}...")
+        self.cache_scan_status.setText("Scanning cache...")
         self.scan_worker = CacheScanWorker(game_ids)
         self.scan_thread = QThread()
         self.scan_worker.moveToThread(self.scan_thread)
@@ -581,6 +586,7 @@ class NBAWatchApp(QWidget):
 
     def on_cache_scan_finished(self, total, done, season):
         self.scan_worker = None
+        self.cache_scan_status.setText("")
         if total == 0:
             self.cache_status.setText("Stats cache: no games to cache (0%)")
             return
