@@ -16,7 +16,8 @@ from PyQt5.QtCore import Qt, QObject, QThread, pyqtSignal
 load_dotenv()
 API_KEY = os.environ.get("NBAWATCH_API_KEY", "YOUR_API_KEY")
 SEASONS = ["2021", "2022", "2023","2024"]  # Only allowed seasons for free plan
-DB_PATH = "nba_cache.sqlite"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "nba_cache.sqlite")
 
 
 def db_connect():
@@ -109,13 +110,14 @@ def db_get_valid_stats(conn, game_id):
     return None
 
 
-def db_save_stats(conn, game_id, data):
+def db_save_stats(conn, game_id, data, commit=True):
     payload = json.dumps(data)
     conn.execute(
         "INSERT OR REPLACE INTO stats (game_id, json, updated_at) VALUES (?, ?, ?)",
         (game_id, payload, int(time.time())),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def db_delete_stats(conn, game_id):
@@ -164,6 +166,7 @@ class StatsCacheWorker(QObject):
 
     def run(self):
         conn = db_connect()
+        session = requests.Session()
         total = len(self.game_ids)
         if total == 0:
             self.progress.emit(0, 0, f"No games to cache for season {self.season}.")
@@ -187,8 +190,10 @@ class StatsCacheWorker(QObject):
             return
 
         headers = {"x-apisports-key": self.api_key}
+        session.headers.update(headers)
         backoff = 15
         max_backoff = 300
+        pending_commits = 0
 
         while missing and not self._stop_event.is_set():
             self._wait_if_paused()
@@ -201,7 +206,7 @@ class StatsCacheWorker(QObject):
 
             url = f"https://v2.nba.api-sports.io/games/statistics?id={game_id}"
             try:
-                response = requests.get(url, headers=headers, timeout=20)
+                response = session.get(url, timeout=20)
             except Exception as e:
                 self.progress.emit(total, done, f"Request error: {e}. Retrying soon...")
                 if not self._sleep_interruptible(5):
@@ -223,7 +228,11 @@ class StatsCacheWorker(QObject):
                             break
                         missing.rotate(-1)
                         continue
-                    db_save_stats(conn, game_id, data)
+                    db_save_stats(conn, game_id, data, commit=False)
+                    pending_commits += 1
+                    if pending_commits >= 10:
+                        conn.commit()
+                        pending_commits = 0
                     missing.popleft()
                     done += 1
                     backoff = 15
@@ -248,11 +257,14 @@ class StatsCacheWorker(QObject):
                     break
                 missing.rotate(-1)
 
+        if pending_commits:
+            conn.commit()
         if self._stop_event.is_set():
             self.progress.emit(total, done, "Caching stopped.")
         else:
             self.progress.emit(total, done, f"All stats cached for season {self.season}.")
         self.finished.emit()
+        session.close()
         conn.close()
 
 class NBAWatchApp(QWidget):
@@ -319,6 +331,15 @@ class NBAWatchApp(QWidget):
         self.rewatch_label.setStyleSheet("font-size: 18px; font-weight: bold; margin: 10px 0;")
         self.layout.addWidget(self.rewatch_label)
 
+        self.rank_btn = QPushButton("Build Season Rewatch Rankings")
+        self.rank_btn.setToolTip("Requires full season stats cache")
+        self.rank_btn.setEnabled(False)
+        self.rank_btn.clicked.connect(self.build_season_rankings)
+        self.layout.addWidget(self.rank_btn)
+
+        self.rank_table = QTableWidget()
+        self.layout.addWidget(self.rank_table)
+
         # Add Quit button at the bottom right
         self.quit_row = QHBoxLayout()
         self.quit_row.addStretch()
@@ -332,6 +353,7 @@ class NBAWatchApp(QWidget):
         self.cache_worker = None
         self.cache_game_ids = []  # Track games being cached
         self.cache_season = None  # Track season being cached
+        self.cache_completed = False
         self.games_by_id = {}
         app = QApplication.instance()
         if app is not None:
@@ -346,6 +368,8 @@ class NBAWatchApp(QWidget):
 
     def fetch_games(self, force_refresh=False):
         season = self.season_combo.currentText()
+        self.cache_completed = False
+        self.rank_btn.setEnabled(False)
         games_data = None
         self.api_status.setText("API: fetching games...")
         # Try to load from cache unless force_refresh
@@ -435,6 +459,8 @@ class NBAWatchApp(QWidget):
         if self.cache_thread is not None and self.cache_thread.isRunning():
             return  # Let existing thread finish
         
+        self.cache_completed = False
+        self.rank_btn.setEnabled(False)
         game_ids = [g.get("id") for g in games if g.get("id")]
         self.cache_game_ids = game_ids
         self.cache_season = season
@@ -470,6 +496,9 @@ class NBAWatchApp(QWidget):
         self.cache_progress.setValue(done)
         percentage = int((done / total * 100)) if total > 0 else 0
         self.cache_status.setText(f"Stats cache: {status} ({percentage}%)")
+        if total > 0 and done >= total:
+            self.cache_completed = True
+            self.rank_btn.setEnabled(True)
 
     def on_cache_finished(self):
         self.cache_worker = None
@@ -654,20 +683,7 @@ class NBAWatchApp(QWidget):
     }
 
     def display_stats_table(self, stats):
-        stat_dicts = []
-        for team_stats in stats:
-            statistics = team_stats["statistics"]
-            if isinstance(statistics, list):
-                if statistics and isinstance(statistics[0], dict) and "type" not in statistics[0]:
-                    stat_dict = statistics[0]
-                else:
-                    stat_dict = {}
-                    for item in statistics:
-                        if isinstance(item, dict) and "type" in item and "value" in item:
-                            stat_dict[item["type"]] = item["value"]
-                stat_dicts.append(stat_dict)
-            else:
-                stat_dicts.append(statistics)
+        stat_dicts = self.build_stat_dicts(stats)
 
         # Collect all stat keys
         stat_keys = set()
@@ -692,7 +708,30 @@ class NBAWatchApp(QWidget):
         # Calculate and display rewatch score
         self.display_rewatch_score(stat_dicts)
 
+    def build_stat_dicts(self, stats):
+        stat_dicts = []
+        for team_stats in stats:
+            statistics = team_stats.get("statistics")
+            if isinstance(statistics, list):
+                if statistics and isinstance(statistics[0], dict) and "type" not in statistics[0]:
+                    stat_dict = statistics[0]
+                else:
+                    stat_dict = {}
+                    for item in statistics:
+                        if isinstance(item, dict) and "type" in item and "value" in item:
+                            stat_dict[item["type"]] = item["value"]
+                stat_dicts.append(stat_dict)
+            elif isinstance(statistics, dict):
+                stat_dicts.append(statistics)
+            else:
+                stat_dicts.append({})
+        return stat_dicts
+
     def display_rewatch_score(self, stat_dicts):
+        rewatch_score = self.compute_rewatch_score(stat_dicts)
+        self.rewatch_label.setText(f"Rewatch Score: {rewatch_score:.1f}")
+
+    def compute_rewatch_score(self, stat_dicts):
         # Helper to safely get float values
         def get_float(d, key):
             try:
@@ -732,7 +771,74 @@ class NBAWatchApp(QWidget):
         rewatch_score += hot_hand
         rewatch_score = min(100, rewatch_score)
 
-        self.rewatch_label.setText(f"Rewatch Score: {rewatch_score:.1f}")
+        return rewatch_score
+
+    def build_season_rankings(self):
+        if not self.cache_completed:
+            QMessageBox.warning(self, "Cache Not Ready", "Wait until the season cache is complete.")
+            return
+        season = self.season_combo.currentText()
+        conn = db_connect()
+        rankings = []
+        skipped = 0
+        try:
+            for game_id, game in self.games_by_id.items():
+                data = db_get_valid_stats(conn, game_id)
+                if not data:
+                    skipped += 1
+                    continue
+                stats = data.get("response", [])
+                if len(stats) != 2:
+                    skipped += 1
+                    continue
+                stat_dicts = self.build_stat_dicts(stats)
+                score = self.compute_rewatch_score(stat_dicts)
+                date = ""
+                try:
+                    date_raw = game.get("date", "")
+                    if isinstance(date_raw, dict):
+                        date = (date_raw.get("start") or "")[:10]
+                    else:
+                        date = str(date_raw)[:10]
+                except Exception:
+                    date = ""
+                try:
+                    home = game["teams"]["home"]["name"]
+                    away = game["teams"]["visitors"]["name"]
+                    matchup = f"{away} @ {home}"
+                except Exception:
+                    matchup = "Unknown matchup"
+                rankings.append((score, game_id, date, matchup))
+        finally:
+            conn.close()
+
+        if not rankings:
+            QMessageBox.warning(self, "No Cached Stats", f"No cached stats found for season {season}.")
+            return
+
+        rankings.sort(key=lambda r: r[0], reverse=True)
+
+        self.rank_table.clear()
+        self.rank_table.setRowCount(len(rankings))
+        self.rank_table.setColumnCount(5)
+        self.rank_table.setHorizontalHeaderLabels(
+            ["Rank", "Date", "Matchup", "Game ID", "Rewatch Score"]
+        )
+
+        for row, (score, game_id, date, matchup) in enumerate(rankings, start=1):
+            self.rank_table.setItem(row - 1, 0, QTableWidgetItem(str(row)))
+            self.rank_table.setItem(row - 1, 1, QTableWidgetItem(date))
+            self.rank_table.setItem(row - 1, 2, QTableWidgetItem(matchup))
+            self.rank_table.setItem(row - 1, 3, QTableWidgetItem(str(game_id)))
+            self.rank_table.setItem(row - 1, 4, QTableWidgetItem(f"{score:.1f}"))
+
+        self.rank_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        if skipped:
+            self.api_status.setText(
+                f"API: rankings built for {season} (skipped {skipped} games with missing stats)"
+            )
+        else:
+            self.api_status.setText(f"API: rankings built for {season}")
 
 
 if __name__ == "__main__":
