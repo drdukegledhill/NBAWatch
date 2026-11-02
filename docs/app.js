@@ -104,7 +104,7 @@ function formatDay(day) {
 }
 
 function logo(team) {
-  return h("img", { class: "logo", src: team.logo, alt: "", loading: "lazy", referrerpolicy: "no-referrer" });
+  return h("img", { class: "logo", src: `logos/${team.abbr}.png`, alt: "", loading: "lazy", width: "26", height: "26" });
 }
 
 function matchup(game) {

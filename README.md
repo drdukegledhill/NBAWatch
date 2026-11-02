@@ -49,6 +49,8 @@ cd docs && python3 -m http.server 8000         # or any static server, then open
 
 Options for `update.mjs`: `--from`, `--to`, `--days`, `--sources espn,apisports,reddit`, `--concurrency`, `--apisports-budget`, `--no-build`. A `.env` file with the secrets above is picked up by `npm run update`.
 
+Team logos are downloaded once by `scripts/fetch-logos.mjs` (96px, about 200KB in total) into `docs/logos/` and served from the site itself, so visitors never hit ESPN's CDN.
+
 `scripts/import-sqlite.mjs` was a one-off import of the old desktop app's `nba_cache.sqlite` into `data/apisports/`.
 
 ## Notes

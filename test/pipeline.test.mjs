@@ -128,8 +128,21 @@ test("mergeSeason keeps api-sports-only games that have stats", () => {
   const stats = { home: { points: 124 }, away: { points: 122 } };
   const merged = mergeSeason({ espn: {}, apisports: { games: { 9: apiGame }, stats: { 9: stats } }, reddit: {} });
   assert.equal(merged[0].id, "ap9");
+  assert.equal(merged[0].home.logo, undefined);
   assert.equal(merged[0].flow.overtimes, 1);
   assert.equal(compactGame({ date: { start: "2023-10-07T16:00:00Z" }, stage: 1 }), null);
+});
+
+test("api-sports abbreviations map onto ESPN's so logo files resolve", () => {
+  const apiGame = compactGame({
+    id: 10, date: { start: "2025-01-11T02:00:00.000Z" }, stage: 2, status: { short: 3 }, periods: { total: 4 },
+    teams: { home: { id: 1, name: "Golden State Warriors", nickname: "Warriors", code: "GSW" }, visitors: { id: 2, name: "Utah Jazz", nickname: "Jazz", code: "UTA" } },
+    scores: { home: { points: 100 }, visitors: { points: 90 } },
+  });
+  const stats = { home: { points: 100 }, away: { points: 90 } };
+  const [game] = mergeSeason({ espn: {}, apisports: { games: { 10: apiGame }, stats: { 10: stats } }, reddit: {} });
+  assert.equal(game.home.abbr, "GS");
+  assert.equal(game.away.abbr, "UTAH");
 });
 
 test("reddit thread matching uses whole words and the game window", () => {

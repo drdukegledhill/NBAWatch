@@ -11,19 +11,20 @@ function fillMissing(primary, fallback) {
   return merged;
 }
 
+// api-sports codes that differ from ESPN's; the site's logo files are named by ESPN abbreviation.
+const ESPN_ABBR = { GSW: "GS", NYK: "NY", NOP: "NO", SAS: "SA", UTA: "UTAH", WAS: "WSH" };
+
 const espnTeam = (team) => ({
   name: team.name,
   nick: team.nick,
   abbr: team.abbr,
-  logo: team.logo,
   score: team.score,
 });
 
 const apiTeam = (team) => ({
   name: team.name,
   nick: team.nick,
-  abbr: team.code,
-  logo: team.code ? `https://a.espncdn.com/i/teamlogos/nba/500/${team.code.toLowerCase()}.png` : team.logo,
+  abbr: ESPN_ABBR[team.code] || team.code,
   score: team.score,
 });
 
