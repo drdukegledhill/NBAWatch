@@ -18,8 +18,13 @@
   box-sizing: border-box;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
+  -webkit-tap-highlight-color: transparent;
   font-family: var(--font-sans);
   color: var(--ink);
   background: linear-gradient(130deg, #f4efe7 0%, #f3e2d0 50%, #f3efe9 100%);
@@ -58,7 +63,7 @@ body {
   position: relative;
   max-width: 1100px;
   margin: 0 auto;
-  padding: 36px 20px 60px;
+  padding: 36px 20px calc(60px + env(safe-area-inset-bottom));
 }
 
 .app-header {
@@ -245,6 +250,12 @@ select {
   background: rgba(226, 99, 59, 0.06);
 }
 
+.game-row:focus-visible,
+.pick:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
+}
+
 .rank {
   color: var(--muted);
   font-size: 13px;
@@ -427,21 +438,54 @@ select {
 
 @media (max-width: 800px) {
   .game-row {
-    grid-template-columns: 26px 1fr 92px;
+    grid-template-columns: 1fr auto;
     grid-template-areas:
-      "rank matchup badge"
-      "rank date final"
-      "rank tags tags";
+      "matchup badge"
+      "date badge"
+      "tags final";
+    column-gap: 12px;
     row-gap: 6px;
+    padding: 14px 2px;
   }
-  .rank { grid-area: rank; }
-  .date { grid-area: date; flex-direction: row; gap: 8px; }
-  .matchup { grid-area: matchup; }
-  .badge { grid-area: badge; }
-  .final { grid-area: final; }
+  .rank { display: none; }
+  .date { grid-area: date; flex-direction: row; align-items: baseline; gap: 8px; }
+  .matchup { grid-area: matchup; font-size: 17px; }
+  .badge { grid-area: badge; align-self: center; }
+  .final { grid-area: final; align-self: end; }
   .tags { grid-area: tags; }
   .detail {
     grid-template-columns: 1fr;
-    padding-left: 8px;
+    padding: 4px 2px 18px;
   }
+}
+
+@media (max-width: 560px) {
+  .app { padding: 20px 14px 40px; }
+  .app-header { gap: 14px; margin-bottom: 16px; align-items: stretch; }
+  .subtitle { font-size: 14px; }
+  .header-panel { min-width: 0; width: 100%; padding: 12px 14px; }
+  .controls {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    padding: 12px;
+  }
+  .controls .field:first-child { grid-column: 1 / -1; }
+  .controls .field:last-child { grid-column: 1 / -1; }
+  /* 16px stops iOS Safari zooming the page when a select is focused */
+  select { font-size: 16px; padding: 11px 10px; }
+  .pick-grid {
+    display: flex;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    gap: 12px;
+    margin: 0 -14px;
+    padding: 4px 14px 14px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .pick { flex: 0 0 82%; scroll-snap-align: center; }
+  .list-panel { padding: 14px 12px; border-radius: 16px; }
+  .section-title { font-size: 22px; }
+  .part { grid-template-columns: 72px 1fr 30px; }
+  .stats th, .stats td { padding: 8px 6px; }
+  .bg-orbit { display: none; }
 }
