@@ -1,7 +1,7 @@
 NBAWatch License
 ================
 
-This project uses Python, PyQt5, and third-party APIs (including but not limited to api-sports.io and ESPN). All trademarks and data are the property of their respective owners.
+This project is a browser-based application built with HTML, CSS, and JavaScript. It uses third-party APIs and may load third-party assets. All trademarks and data are the property of their respective owners.
 
 Permission is granted to use, modify, and run this code for personal, educational, or research purposes only.
 

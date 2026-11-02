@@ -1,106 +1,32 @@
 # NBAWatch
 
-NBAWatch is a desktop application for exploring NBA game data, built with Python and PyQt5. It also ships with a lightweight HTML/CSS/JS version in `docs/`. It allows you to:
-- Select a season and browse all NBA games for that year
-- View detailed team stats and logos for any game
-- Instantly see a "rewatch score" that estimates how entertaining a game is to rewatch, based on real stats
+NBAWatch is a browser-based app for exploring NBA games, comparing team stats, and finding the most rewatchable matchups.
 
 ## Features
-- **Season and Game Selection:** Choose from available NBA seasons (2021–2024 for free API plans) and select any game.
-- **Team Logos and Stats:** View both teams' names, logos (aligned above their stat columns), and a full table of game stats (with a fallback logo source when the primary logo is missing).
-- **Rewatch Score:** Get a single number (0–100) summarizing the game's entertainment value, calculated from offensive, defensive, and dramatic factors.
-- **Focused Output Panel:** The right side switches between single-game stats and season rankings, with tables that hide row numbers for a cleaner look.
-- **Modern UI:** Built with PyQt5 for a responsive, cross-platform desktop experience.
-- **Web Companion:** A standalone HTML/CSS/JS version in `docs/` with local browser caching, stats table, and season rankings.
-- **Local Caching:** Game lists and stats are cached locally to reduce API calls and speed up repeat usage. The cache file is anchored to the app folder so progress persists across restarts.
-- **Background Stats Caching:** When you load a season, the app scans cached progress in the background (with an animated “Scanning cache…” indicator) and then continues caching with a progress bar so the UI stays responsive. If you select a game while caching, the cache pauses during the single-game fetch and then resumes automatically.
-- **Cache Progress:** View real-time cache percentage as stats are downloaded in the background.
-- **API Status Indicator:** A status line shows the latest API fetch or error message (useful for rate limits).
 
-## Setup Instructions
+- Browse games for the available seasons (2022–2024).
+- View team stats, logos, and a rewatch score for each game.
+- Cache season stats with progress controls and build season rankings.
+- Store the API key and cached responses in the browser.
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/drdukegledhill/NBAWatch.git
-   cd NBAWatch
-   ```
-2. **Install dependencies:**
-   ```bash
-   pip3 install -r requirements.txt
-   # Or, at minimum:
-   pip3 install PyQt5 requests python-dotenv
-   ```
-3. **API Key Setup:**
-   - Get a free API key from [api-sports.io](https://dashboard.api-sports.io/)
-   - Create a `.env` file in the project root:
-     ```bash
-     echo "NBAWATCH_API_KEY=YOUR_API_KEY" > .env
-     ```
-   - Or set it as an environment variable:
-     ```bash
-     export NBAWATCH_API_KEY="YOUR_API_KEY"
-     ```
-   - Note: `.env` is git-ignored for security.
-4. **Run the app:**
-   ```bash
-   python3 NBAWatch.py
-   ```
+## Getting started
 
-## Web Companion (HTML/CSS/JS)
+1. Open `docs/index.html` in a browser, or publish the contents of `docs/` using any static web host.
+2. Get an API key from [API-Sports](https://dashboard.api-sports.io/), enter it in the **API Key** field, and click **Save**.
+3. Choose a season and use **Get Games**, **Get Game Stats**, or **Build Season Rewatch Rankings**.
 
-The web version lives in `docs/` and runs entirely in the browser.
+NBAWatch is a static web app: it has no build step or server-side component. A static HTTP server or host is recommended if your browser restricts requests from locally opened files.
 
-1. Open `docs/index.html` in your browser.
-2. Paste your API key into the API Key field and click **Save** (stored locally in your browser).
-3. Use **Get Games**, **Get Game Stats**, or **Build Season Rewatch Rankings**.
+## Data and privacy
 
-Notes:
-- The web version caches data in `localStorage` instead of SQLite.
-- If you rotate API keys, use **Clear Local Cache** or re-save the key.
+The app sends requests directly from your browser to the NBA API. Your API key is saved in browser `localStorage`, and game/stat responses are cached there for up to seven days. The key is available to anyone who can use that browser profile, so use an API key you are comfortable using client-side. Select **Clear Local Cache** to remove NBAWatch's saved key and cached data from that browser.
 
-## Caching
+## Rewatch score
 
-API responses are cached in `nba_cache.sqlite` to speed up repeat usage. This file is ignored by git and is stored next to `NBAWatch.py` so it stays consistent regardless of how you launch the app. Season-level stat caching runs in the background with a progress bar, pauses briefly during single-game fetches, and backs off on 429 rate limits until all games are cached.
-
-If you hit the API daily quota, the app will show a warning and the API status line will display the error message. You can retry later when your limit resets.
-
-### Reset the cache
-
-To clear cached data and start fresh:
-
-```bash
-rm -f nba_cache.sqlite nba_cache.sqlite-wal nba_cache.sqlite-shm
-```
+The 0–100 rewatch score combines scoring, assists, shooting, three-pointers, steals, blocks, game closeness, turnovers, and a bonus for exceptional field-goal accuracy. High-scoring, close games with strong shooting and defensive highlights tend to score higher.
 
 ## Troubleshooting
 
-- **API key missing:** The app will show "API: missing key". Set `NBAWATCH_API_KEY` or edit `API_KEY` in `NBAWatch.py`.
-- **Daily limit reached (429 / empty games):** The API has daily quotas. Wait for reset or upgrade your plan.
-- **No games found:** This usually indicates a quota error. Check the API status line for details.
-- **Stats missing for a game:** Some games may not have stats yet; try again later.
-
-## Rewatch Score Calculation
-
-The rewatch score is a single number (0–100) that estimates how entertaining a basketball game is to rewatch, based on a mix of offensive, defensive, and dramatic factors:
-
-### How the Score is Calculated
-
-- **Offensive Appeal**
-  - Total Points: More points = more action
-  - Assists: More assists = better ball movement
-  - Field Goal %: Higher accuracy = more made shots
-  - Three-Point %: Higher accuracy = more exciting long-range shots
-  - Three-Pointers Made: More = more spectacular plays
-- **Defensive Highlights**
-  - Steals: More = more fast breaks and defensive excitement
-  - Blocks: More = more dramatic defensive plays
-- **Chaos Factor**
-  - Close Game Bonus: The closer the final score, the higher the bonus (up to a maximum)
-  - Turnovers Penalty: More turnovers = sloppier play, which reduces the score
-- **Hot Hand Bonus**
-  - If either team shoots over 70% from the field, add a bonus for "hot hand" performances
-- **Final Step**
-  - All these components are combined (with each factor scaled to keep the score reasonable), and the total is capped at 100.
-
-## Example
-A game with lots of points, assists, accurate shooting, exciting 3-pointers, defensive highlights, and a close finish will have a high rewatch score. Games with lots of turnovers or a blowout score will have a lower score. 
+- **API key missing:** Enter your API key and click **Save**.
+- **Rate limit or empty results:** Check your API-Sports plan and quota, then retry after the limit resets.
+- **Stats unavailable:** Some games may not have stats yet; try again later.

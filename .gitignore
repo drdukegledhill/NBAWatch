@@ -1,7 +1,5 @@
 .DS_Store
-__pycache__/
-*.py[cod]
-# API cache files
+# Local data cache files
 /nba_cache.sqlite
 /nba_cache.sqlite-*
 .env
