@@ -1,0 +1,12 @@
+{
+  "name": "nbawatch",
+  "private": true,
+  "type": "module",
+  "description": "NBAWatch data pipeline: fetches ESPN, api-sports and Reddit data into JSON files for the static dashboard in docs/.",
+  "engines": { "node": ">=22.9" },
+  "scripts": {
+    "update": "node --env-file-if-exists=.env scripts/update.mjs",
+    "build": "node scripts/build.mjs",
+    "test": "node --test \"test/*.test.mjs\""
+  }
+}

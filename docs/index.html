@@ -3,7 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>NBAWatch — Season & Game Selector</title>
+    <title>NBAWatch — Is it worth watching?</title>
+    <meta name="description" content="Spoiler-light rewatch scores for every NBA game, combining box scores, game flow and fan buzz." />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -14,115 +15,75 @@
       <header class="app-header">
         <div>
           <p class="eyebrow">NBAWatch</p>
-          <h1>Season &amp; Game Watchlist</h1>
-          <p class="subtitle">Browse NBA games, cache stats, and rank the most rewatchable matchups.</p>
+          <h1>Is it worth watching?</h1>
+          <p class="subtitle">Every NBA game scored on box score, game flow and fan buzz — so you can pick what to catch up on.</p>
         </div>
-        <div class="api-panel">
-          <label for="apiKey" class="label">API Key</label>
-          <div class="api-row">
-            <input id="apiKey" type="password" placeholder="Paste your API key" />
-            <button id="saveKeyBtn" class="btn secondary">Save</button>
-          </div>
-          <p class="hint">Stored locally in your browser. Required for API calls.</p>
+        <div class="header-panel">
+          <label class="switch">
+            <input id="spoilerToggle" type="checkbox" checked />
+            <span>Hide scores &amp; stats</span>
+          </label>
+          <p id="freshness" class="hint">Loading data…</p>
         </div>
       </header>
 
-      <section class="layout">
-        <aside class="panel left">
-          <div class="panel-section">
-            <label class="label" for="seasonSelect">Select Season</label>
-            <div class="row">
-              <select id="seasonSelect"></select>
-              <button id="getGamesBtn" class="btn">Get Games</button>
-              <button id="refreshGamesBtn" class="btn ghost">Refresh</button>
-            </div>
-            <p id="apiStatus" class="status">API: idle</p>
-          </div>
-
-          <div class="panel-section">
-            <div class="cache-status">
-              <p class="label">Stats cache</p>
-              <p id="cacheStatus" class="status">Stats cache: idle</p>
-              <div class="progress">
-                <div id="cacheProgressBar" class="progress-bar" style="width: 0%;"></div>
-              </div>
-              <p id="cacheScanStatus" class="hint"></p>
-              <div class="row">
-                <button id="cacheSeasonBtn" class="btn secondary">Cache Season Stats</button>
-                <button id="pauseCacheBtn" class="btn ghost">Pause</button>
-                <button id="stopCacheBtn" class="btn ghost">Stop</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="panel-section">
-            <label class="label" for="gameSelect">Select Game</label>
-            <select id="gameSelect"></select>
-            <div class="row">
-              <button id="getStatsBtn" class="btn">Get Game Stats</button>
-              <button id="refreshStatsBtn" class="btn ghost">Refresh Stats</button>
-            </div>
-          </div>
-
-          <div class="panel-section">
-            <button id="rankingsBtn" class="btn secondary">Build Season Rewatch Rankings</button>
-          </div>
-
-          <div class="panel-footer">
-            <button id="clearCacheBtn" class="btn ghost">Clear Local Cache</button>
-          </div>
-        </aside>
-
-        <section class="panel right">
-          <div id="gameView" class="view">
-            <div class="team-row">
-              <div class="team-card">
-                <img id="team1Logo" alt="Team 1 logo" />
-                <h3 id="team1Name">Team 1</h3>
-              </div>
-              <div class="team-card">
-                <img id="team2Logo" alt="Team 2 logo" />
-                <h3 id="team2Name">Team 2</h3>
-              </div>
-            </div>
-
-            <div class="table-wrap">
-              <table id="statsTable">
-                <thead>
-                  <tr>
-                    <th>Stat</th>
-                    <th id="team1Header">Team 1</th>
-                    <th id="team2Header">Team 2</th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
-            </div>
-
-            <div class="rewatch">
-              <span>Rewatch Score</span>
-              <strong id="rewatchScore">N/A</strong>
-            </div>
-          </div>
-
-          <div id="rankView" class="view hidden">
-            <div class="table-wrap">
-              <table id="rankTable">
-                <thead>
-                  <tr>
-                    <th>Rank</th>
-                    <th>Date</th>
-                    <th>Matchup</th>
-                    <th>Game ID</th>
-                    <th>Rewatch Score</th>
-                  </tr>
-                </thead>
-                <tbody></tbody>
-              </table>
-            </div>
-          </div>
-        </section>
+      <section class="panel controls" aria-label="Filters">
+        <div class="field">
+          <label class="label" for="seasonSelect">Season</label>
+          <select id="seasonSelect"></select>
+        </div>
+        <div class="field">
+          <label class="label" for="windowSelect">Period</label>
+          <select id="windowSelect">
+            <option value="latest">Latest game day</option>
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="all">Whole season</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="label" for="teamSelect">Team</label>
+          <select id="teamSelect"></select>
+        </div>
+        <div class="field">
+          <label class="label" for="typeSelect">Type</label>
+          <select id="typeSelect">
+            <option value="all">All games</option>
+            <option value="regular">Regular season</option>
+            <option value="playin">Play-in</option>
+            <option value="playoffs">Playoffs</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="label" for="sortSelect">Sort by</label>
+          <select id="sortSelect">
+            <option value="score">Rewatch score</option>
+            <option value="date">Newest first</option>
+            <option value="flow">Game flow</option>
+            <option value="box">Box score</option>
+            <option value="buzz">Fan buzz</option>
+          </select>
+        </div>
       </section>
+
+      <p id="status" class="status" role="status"></p>
+
+      <section id="picksSection" class="picks hidden" aria-label="Top picks">
+        <h2 class="section-title">Top picks</h2>
+        <div id="picks" class="pick-grid"></div>
+      </section>
+
+      <section class="panel list-panel" aria-label="Games">
+        <h2 class="section-title"><span id="listTitle">Games</span> <small id="listCount"></small></h2>
+        <div id="gameList" class="game-list"></div>
+      </section>
+
+      <footer class="footer">
+        <p>
+          Scores combine box score quality (35%), game flow from play-by-play (45%) and r/nba thread activity (20%, when available).
+          Data from ESPN, api-sports.io and Reddit, refreshed by a scheduled GitHub Action. Tiers are relative to the selected season.
+        </p>
+      </footer>
     </main>
 
     <script src="app.js"></script>

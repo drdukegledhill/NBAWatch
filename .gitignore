@@ -1,5 +1,4 @@
 .DS_Store
 # Local data cache files
-/nba_cache.sqlite
-/nba_cache.sqlite-*
+/nba_cache*
 .env
